@@ -67,52 +67,65 @@ log "STEP 3/4: PYTHON RESOLVE ROBLOX SHARE LINK"
 
 termux-setup-storage || true
 pkg install -y python lua53 sqlite termux-api sed >/dev/null 2>&1 || true
-pip install -U requests >/dev/null 2>&1 || true
+python3 -m pip install -U requests >/dev/null 2>&1 || true
 
-read -r -p "device_label (contoh: L05): " DEVICE_LABEL
-while [ -z "$DEVICE_LABEL" ]; do
-  read -r -p "device_label tidak boleh kosong, isi lagi: " DEVICE_LABEL
+read -r -p "device_label (contoh: L05): " DEVICE_LABEL || true
+while [ -z "${DEVICE_LABEL:-}" ]; do
+  read -r -p "device_label tidak boleh kosong, isi lagi: " DEVICE_LABEL || true
 done
 
-read -r -p "roblox SHARE link: " SHARE_LINK
-while [ -z "$SHARE_LINK" ]; do
-  read -r -p "SHARE link tidak boleh kosong, isi lagi: " SHARE_LINK
+read -r -p "roblox SHARE link: " SHARE_LINK || true
+while [ -z "${SHARE_LINK:-}" ]; do
+  read -r -p "SHARE link tidak boleh kosong, isi lagi: " SHARE_LINK || true
 done
 
 log "Resolving link via Python..."
-
-FINAL_LINK="$(python3 - <<'PY'
+FINAL_LINK="$(python3 - "$SHARE_LINK" <<'PY'
 import re, sys, requests
 
-url = sys.argv[1]
+url = sys.argv[1].strip()
+
 IOS_UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
     "Mobile/15E148 Safari/604.1"
 )
 
+games_re = re.compile(r"https?://www\.roblox\.com/games/\d+[^\"'\s]*privateServerLinkCode=[A-Za-z0-9]+")
+games_path_re = re.compile(r"/games/\d+[^\"'\s]*privateServerLinkCode=[A-Za-z0-9]+")
+
 s = requests.Session()
-s.headers.update({"User-Agent": IOS_UA})
+s.headers.update({
+    "User-Agent": IOS_UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Connection": "close",
+})
 
 r = s.get(url, allow_redirects=True, timeout=25)
 final = str(r.url)
 
 if "roblox.com/games/" in final and "privateServerLinkCode=" in final:
     print(final)
-    sys.exit(0)
+    raise SystemExit(0)
 
 html = r.text or ""
-m = re.search(r"https://www\.roblox\.com/games/\d+[^\"'\s]*privateServerLinkCode=[A-Za-z0-9]+", html)
+m = games_re.search(html)
 if m:
     print(m.group(0))
-    sys.exit(0)
+    raise SystemExit(0)
+
+m2 = games_path_re.search(html)
+if m2:
+    print("https://www.roblox.com" + m2.group(0))
+    raise SystemExit(0)
 
 print("")
 PY
-" "$SHARE_LINK")"
+)"
 
 if [ -z "$FINAL_LINK" ]; then
-  echo "[!] GAGAL resolve link via Python"
+  echo "[!] GAGAL resolve link via Python (Roblox mungkin beda response / butuh retry)."
   exit 1
 fi
 
@@ -138,7 +151,7 @@ sed -i \
   echo "device_label=$DEVICE_LABEL"
 } >> "$CONF"
 
-log "Config OK"
+log "Config updated: $CONF"
 
 ###############################################################################
 log "STEP 4/4: RUN winter-rejoin.lua"
