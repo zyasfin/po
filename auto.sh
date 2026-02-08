@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-set -euo pipefail
+set -e
 
 STORAGE="/storage/emulated/0"
 ANDROID_DATA="$STORAGE/Android/data"
@@ -8,7 +8,6 @@ TMP="$STORAGE/__delta_tmp"
 
 DELTA_OUT="$STORAGE/Delta"
 DOWNLOAD_OUT="$STORAGE/Download"
-
 CONF="$STORAGE/Download/WinterHub/auto_rejoin.conf"
 
 log(){ echo -e "\n[+] $*"; }
@@ -64,45 +63,67 @@ else
 fi
 
 ###############################################################################
-log "STEP 3/4: TERMUX SETUP + CONFIG INPUT"
+log "STEP 3/4: PYTHON RESOLVE ROBLOX SHARE LINK"
 
 termux-setup-storage || true
-pkg install -y lua53 sqlite termux-api sed >/dev/null 2>&1 || true
+pkg install -y python lua53 sqlite termux-api sed >/dev/null 2>&1 || true
+pip install -U requests >/dev/null 2>&1 || true
 
-read -r -p "device_label (contoh: L05): " DEVICE_LABEL || true
-DEVICE_LABEL="${DEVICE_LABEL:-}"
-
+read -r -p "device_label (contoh: L05): " DEVICE_LABEL
 while [ -z "$DEVICE_LABEL" ]; do
-  read -r -p "device_label tidak boleh kosong, isi lagi: " DEVICE_LABEL || true
+  read -r -p "device_label tidak boleh kosong, isi lagi: " DEVICE_LABEL
 done
 
-read -r -p "roblox SHARE link: " SHARE_LINK || true
-SHARE_LINK="${SHARE_LINK:-}"
-
+read -r -p "roblox SHARE link: " SHARE_LINK
 while [ -z "$SHARE_LINK" ]; do
-  read -r -p "SHARE link tidak boleh kosong, isi lagi: " SHARE_LINK || true
+  read -r -p "SHARE link tidak boleh kosong, isi lagi: " SHARE_LINK
 done
 
-echo
-echo "[*] Share link tidak bisa di-resolve otomatis."
-echo "[*] Browser akan dibuka."
-echo "[*] COPY URL FINAL (/games/...privateServerLinkCode=...)"
-echo
+log "Resolving link via Python..."
 
-termux-open-url "$SHARE_LINK" >/dev/null 2>&1 || true
+FINAL_LINK="$(python3 - <<'PY'
+import re, sys, requests
 
-read -r -p "Paste FINAL games link di sini: " FINAL_LINK || true
-FINAL_LINK="${FINAL_LINK:-}"
+url = sys.argv[1]
+IOS_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
+    "Mobile/15E148 Safari/604.1"
+)
 
-if ! echo "$FINAL_LINK" | grep -q 'roblox.com/games/.*privateServerLinkCode='; then
-  echo "[!] LINK FINAL TIDAK VALID"
+s = requests.Session()
+s.headers.update({"User-Agent": IOS_UA})
+
+r = s.get(url, allow_redirects=True, timeout=25)
+final = str(r.url)
+
+if "roblox.com/games/" in final and "privateServerLinkCode=" in final:
+    print(final)
+    sys.exit(0)
+
+html = r.text or ""
+m = re.search(r"https://www\.roblox\.com/games/\d+[^\"'\s]*privateServerLinkCode=[A-Za-z0-9]+", html)
+if m:
+    print(m.group(0))
+    sys.exit(0)
+
+print("")
+PY
+" "$SHARE_LINK")"
+
+if [ -z "$FINAL_LINK" ]; then
+  echo "[!] GAGAL resolve link via Python"
   exit 1
 fi
 
+log "Resolved link:"
+echo "$FINAL_LINK"
+
+###############################################################################
+log "WRITE CONFIG: auto_rejoin.conf"
 
 mkdir -p "$(dirname "$CONF")"
 
-# bersihin key lama biar ga dobel
 sed -i \
   -e '/^shared_links_count=/d' \
   -e '/^shared_link_1=/d' \
@@ -117,14 +138,12 @@ sed -i \
   echo "device_label=$DEVICE_LABEL"
 } >> "$CONF"
 
-log "Config updated:"
-sed -n '1,10p' "$CONF"
+log "Config OK"
 
 ###############################################################################
-log "STEP 4/4: RUN winter-rejoin.lua (NO DOWNLOAD)"
+log "STEP 4/4: RUN winter-rejoin.lua"
 
 cd /sdcard/Download
 lua winter-rejoin.lua </dev/null
 
 log "ALL DONE ✅"
-
