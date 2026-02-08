@@ -74,15 +74,26 @@ while [ -z "${DEVICE_LABEL:-}" ]; do
   read -r -p "device_label tidak boleh kosong, isi lagi: " DEVICE_LABEL || true
 done
 
-read -r -p "roblox SHARE link: " SHARE_LINK || true
-while [ -z "${SHARE_LINK:-}" ]; do
-  read -r -p "SHARE link tidak boleh kosong, isi lagi: " SHARE_LINK || true
+read -r -p "roblox SHARE link (https://www.roblox.com/share?...): " SHARE_LINK || true
+SHARE_LINK="${SHARE_LINK:-}"
+SHARE_LINK="$(echo "$SHARE_LINK" | tr -d '\r' | xargs)"
+
+# validasi ketat: harus URL
+while ! echo "$SHARE_LINK" | grep -qiE '^https?://'; do
+  warn "Input harus URL (awalannya http/https). Kamu input: '$SHARE_LINK'"
+  read -r -p "roblox SHARE link: " SHARE_LINK || true
+  SHARE_LINK="${SHARE_LINK:-}"
+  SHARE_LINK="$(echo "$SHARE_LINK" | tr -d '\r' | xargs)"
 done
+
+# optional: pastiin roblox
+if ! echo "$SHARE_LINK" | grep -qi 'roblox\.com'; then
+  warn "Ini bukan roblox.com, tapi tetap dicoba: $SHARE_LINK"
+fi
 
 log "Resolving link via Python..."
 FINAL_LINK="$(python3 - "$SHARE_LINK" <<'PY'
-import re, sys, requests
-
+import re, sys, time, requests
 url = sys.argv[1].strip()
 
 IOS_UA = (
@@ -102,35 +113,41 @@ s.headers.update({
     "Connection": "close",
 })
 
-r = s.get(url, allow_redirects=True, timeout=25)
-final = str(r.url)
+def attempt(u: str) -> str | None:
+    r = s.get(u, allow_redirects=True, timeout=25)
+    final = str(r.url)
+    if "roblox.com/games/" in final and "privateServerLinkCode=" in final:
+        return final
+    html = r.text or ""
+    m = games_re.search(html)
+    if m:
+        return m.group(0)
+    m2 = games_path_re.search(html)
+    if m2:
+        return "https://www.roblox.com" + m2.group(0)
+    return None
 
-if "roblox.com/games/" in final and "privateServerLinkCode=" in final:
-    print(final)
-    raise SystemExit(0)
-
-html = r.text or ""
-m = games_re.search(html)
-if m:
-    print(m.group(0))
-    raise SystemExit(0)
-
-m2 = games_path_re.search(html)
-if m2:
-    print("https://www.roblox.com" + m2.group(0))
-    raise SystemExit(0)
+out = None
+for i in range(1, 6):
+    try:
+        out = attempt(url)
+        if out:
+            print(out)
+            sys.exit(0)
+        # kalau ga dapet, retry
+        time.sleep(1)
+    except Exception:
+        time.sleep(1)
 
 print("")
 PY
 )"
 
 if [ -z "$FINAL_LINK" ]; then
-  echo "[!] GAGAL resolve link via Python (Roblox mungkin beda response / butuh retry)."
+  echo "[!] GAGAL resolve link via Python. Coba ulang / linknya mungkin beda response."
   exit 1
 fi
 
-log "Resolved link:"
-echo "$FINAL_LINK"
 
 ###############################################################################
 log "WRITE CONFIG: auto_rejoin.conf"
@@ -160,3 +177,4 @@ cd /sdcard/Download
 lua winter-rejoin.lua </dev/null
 
 log "ALL DONE ✅"
+
