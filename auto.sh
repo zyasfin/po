@@ -10,8 +10,55 @@ DELTA_OUT="$STORAGE/Delta"
 DOWNLOAD_OUT="$STORAGE/Download"
 CONF="$STORAGE/Download/WinterHub/auto_rejoin.conf"
 
+TTY="/dev/tty"
+LOGF="/data/data/com.termux/files/usr/tmp/auto_install.log"
+
 log(){ echo -e "\n[+] $*"; }
 warn(){ echo -e "\n[!] $*"; }
+
+read_tty() {
+  # usage: read_tty "Prompt: " VAR
+  local prompt="$1"
+  local __var="$2"
+  local val=""
+  if [ -r "$TTY" ]; then
+    IFS= read -r -p "$prompt" val <"$TTY" || true
+  else
+    IFS= read -r -p "$prompt" val || true
+  fi
+  val="$(echo "$val" | tr -d '\r' | xargs)"
+  printf -v "$__var" "%s" "$val"
+}
+
+run() {
+  # usage: run "title" command...
+  local title="$1"; shift
+  mkdir -p "$(dirname "$LOGF")"
+  : > "$LOGF"
+
+  echo -n "[*] $title... "
+  ("$@") >>"$LOGF" 2>&1 &
+  local pid=$!
+
+  local spin='-\|/'
+  local i=0
+  while kill -0 "$pid" 2>/dev/null; do
+    printf "\b%s" "${spin:i++%4:1}"
+    sleep 0.12
+  done
+
+  wait "$pid"
+  local rc=$?
+
+  if [ $rc -eq 0 ]; then
+    printf "\b✅\n"
+  else
+    printf "\b❌\n"
+    echo "---- LAST LOG (tail 60) ----"
+    tail -n 60 "$LOGF" || true
+    return $rc
+  fi
+}
 
 ###############################################################################
 log "STEP 1/4: APPLY ZIP (PACKAGE + Delta + Download)"
@@ -27,17 +74,18 @@ for ITEM in "$TMP"/*; do
   NAME="$(basename "$ITEM")"
 
   if [ "$NAME" = "Delta" ]; then
-    log "Replace Delta"
+    log "Replace Delta -> $DELTA_OUT"
     rm -rf "$DELTA_OUT"
     mv "$ITEM" "$DELTA_OUT"
 
   elif [ "$NAME" = "Download" ]; then
-    log "Replace Download"
+    log "Replace Download -> $DOWNLOAD_OUT"
+    # sesuai request kamu: replace total Download
     rm -rf "$DOWNLOAD_OUT"
     mv "$ITEM" "$DOWNLOAD_OUT"
 
   else
-    log "Replace package: $NAME"
+    log "Replace package: $NAME -> $ANDROID_DATA/$NAME"
     rm -rf "$ANDROID_DATA/$NAME"
     mv "$ITEM" "$ANDROID_DATA/$NAME"
   fi
@@ -63,94 +111,88 @@ else
 fi
 
 ###############################################################################
-log "STEP 3/4: PYTHON RESOLVE ROBLOX SHARE LINK"
+log "STEP 3/4: SETUP + PYTHON RESOLVE ROBLOX SHARE LINK (WITH PROGRESS)"
 
+# storage permission (aman kalau sudah pernah)
 termux-setup-storage || true
-pkg install -y python lua53 sqlite termux-api sed >/dev/null 2>&1 || true
-python3 -m pip install -U requests >/dev/null 2>&1 || true
 
-read -r -p "device_label (contoh: L05): " DEVICE_LABEL || true
-while [ -z "${DEVICE_LABEL:-}" ]; do
-  read -r -p "device_label tidak boleh kosong, isi lagi: " DEVICE_LABEL || true
+# install deps pakai progress spinner
+run "pkg update" pkg update -y
+run "install python + lua + sqlite + termux-api + sed" pkg install -y python lua53 sqlite termux-api sed
+run "pip install requests" python3 -m pip install -U requests
+
+DEVICE_LABEL=""
+SHARE_LINK=""
+
+read_tty "device_label (contoh: L05): " DEVICE_LABEL
+while [ -z "$DEVICE_LABEL" ]; do
+  read_tty "device_label tidak boleh kosong, isi lagi: " DEVICE_LABEL
 done
 
-read -r -p "roblox SHARE link (https://www.roblox.com/share?...): " SHARE_LINK || true
-SHARE_LINK="${SHARE_LINK:-}"
-SHARE_LINK="$(echo "$SHARE_LINK" | tr -d '\r' | xargs)"
-
-# validasi ketat: harus URL
+read_tty "roblox SHARE link (https://www.roblox.com/share?...): " SHARE_LINK
 while ! echo "$SHARE_LINK" | grep -qiE '^https?://'; do
-  warn "Input harus URL (awalannya http/https). Kamu input: '$SHARE_LINK'"
-  read -r -p "roblox SHARE link: " SHARE_LINK || true
-  SHARE_LINK="${SHARE_LINK:-}"
-  SHARE_LINK="$(echo "$SHARE_LINK" | tr -d '\r' | xargs)"
+  warn "Harus URL http/https. Input kamu: '$SHARE_LINK'"
+  read_tty "roblox SHARE link: " SHARE_LINK
 done
 
-# optional: pastiin roblox
-if ! echo "$SHARE_LINK" | grep -qi 'roblox\.com'; then
-  warn "Ini bukan roblox.com, tapi tetap dicoba: $SHARE_LINK"
-fi
-
-log "Resolving link via Python..."
-FINAL_LINK="$(python3 - "$SHARE_LINK" <<'PY'
+log "Resolving link via Python (retry 5x)..."
+FINAL_LINK="$(python3 -c '
 import re, sys, time, requests
+
 url = sys.argv[1].strip()
+IOS_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+          "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
+          "Mobile/15E148 Safari/604.1")
 
-IOS_UA = (
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
-    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
-    "Mobile/15E148 Safari/604.1"
-)
-
-games_re = re.compile(r"https?://www\.roblox\.com/games/\d+[^\"'\s]*privateServerLinkCode=[A-Za-z0-9]+")
-games_path_re = re.compile(r"/games/\d+[^\"'\s]*privateServerLinkCode=[A-Za-z0-9]+")
+games_re = re.compile(r"https?://www\.roblox\.com/games/\d+[^\"'\''\s]*privateServerLinkCode=[A-Za-z0-9]+")
+games_path_re = re.compile(r"/games/\d+[^\"'\''\s]*privateServerLinkCode=[A-Za-z0-9]+")
 
 s = requests.Session()
 s.headers.update({
-    "User-Agent": IOS_UA,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Connection": "close",
+  "User-Agent": IOS_UA,
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Connection": "close",
 })
 
-def attempt(u: str) -> str | None:
-    r = s.get(u, allow_redirects=True, timeout=25)
-    final = str(r.url)
-    if "roblox.com/games/" in final and "privateServerLinkCode=" in final:
-        return final
-    html = r.text or ""
-    m = games_re.search(html)
-    if m:
-        return m.group(0)
-    m2 = games_path_re.search(html)
-    if m2:
-        return "https://www.roblox.com" + m2.group(0)
-    return None
+def attempt(u):
+  r = s.get(u, allow_redirects=True, timeout=25)
+  final = str(r.url)
+  if "roblox.com/games/" in final and "privateServerLinkCode=" in final:
+    return final
+  html = r.text or ""
+  m = games_re.search(html)
+  if m:
+    return m.group(0)
+  m2 = games_path_re.search(html)
+  if m2:
+    return "https://www.roblox.com" + m2.group(0)
+  return None
 
 out = None
-for i in range(1, 6):
-    try:
-        out = attempt(url)
-        if out:
-            print(out)
-            sys.exit(0)
-        # kalau ga dapet, retry
-        time.sleep(1)
-    except Exception:
-        time.sleep(1)
+for _ in range(5):
+  try:
+    out = attempt(url)
+    if out:
+      print(out)
+      raise SystemExit(0)
+  except Exception:
+    pass
+  time.sleep(1)
 
 print("")
-PY
-)"
+' "$SHARE_LINK")"
 
 if [ -z "$FINAL_LINK" ]; then
-  echo "[!] GAGAL resolve link via Python. Coba ulang / linknya mungkin beda response."
+  echo "[!] GAGAL resolve link via Python."
   exit 1
 fi
 
+log "Resolved link:"
+echo "$FINAL_LINK"
 
 ###############################################################################
-log "WRITE CONFIG: auto_rejoin.conf"
+log "WRITE CONFIG: $CONF"
 
 mkdir -p "$(dirname "$CONF")"
 
@@ -168,13 +210,12 @@ sed -i \
   echo "device_label=$DEVICE_LABEL"
 } >> "$CONF"
 
-log "Config updated: $CONF"
+log "Config updated OK"
 
 ###############################################################################
-log "STEP 4/4: RUN winter-rejoin.lua"
+log "STEP 4/4: RUN winter-rejoin.lua (NO DOWNLOAD)"
 
 cd /sdcard/Download
 lua winter-rejoin.lua </dev/null
 
 log "ALL DONE ✅"
-
