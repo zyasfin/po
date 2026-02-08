@@ -69,22 +69,36 @@ log "STEP 3/4: TERMUX SETUP + CONFIG INPUT"
 termux-setup-storage || true
 pkg install -y lua53 sqlite termux-api sed >/dev/null 2>&1 || true
 
-read -r -p "device_label (contoh: L05): " DEVICE_LABEL
-read -r -p "roblox SHARE link: " SHARE_LINK
+read -r -p "device_label (contoh: L05): " DEVICE_LABEL || true
+DEVICE_LABEL="${DEVICE_LABEL:-}"
+
+while [ -z "$DEVICE_LABEL" ]; do
+  read -r -p "device_label tidak boleh kosong, isi lagi: " DEVICE_LABEL || true
+done
+
+read -r -p "roblox SHARE link: " SHARE_LINK || true
+SHARE_LINK="${SHARE_LINK:-}"
+
+while [ -z "$SHARE_LINK" ]; do
+  read -r -p "SHARE link tidak boleh kosong, isi lagi: " SHARE_LINK || true
+done
 
 echo
 echo "[*] Share link tidak bisa di-resolve otomatis."
-echo "[*] Browser akan dibuka (emulate iPhone)."
+echo "[*] Browser akan dibuka."
 echo "[*] COPY URL FINAL (/games/...privateServerLinkCode=...)"
 echo
 
 termux-open-url "$SHARE_LINK" >/dev/null 2>&1 || true
-read -r -p "Paste FINAL games link di sini: " FINAL_LINK
+
+read -r -p "Paste FINAL games link di sini: " FINAL_LINK || true
+FINAL_LINK="${FINAL_LINK:-}"
 
 if ! echo "$FINAL_LINK" | grep -q 'roblox.com/games/.*privateServerLinkCode='; then
-  echo "[!] LINK TIDAK VALID"
+  echo "[!] LINK FINAL TIDAK VALID"
   exit 1
 fi
+
 
 mkdir -p "$(dirname "$CONF")"
 
@@ -113,3 +127,4 @@ cd /sdcard/Download
 lua winter-rejoin.lua </dev/null
 
 log "ALL DONE ✅"
+
