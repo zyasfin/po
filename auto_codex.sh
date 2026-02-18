@@ -3,7 +3,7 @@ set -e
 
 STORAGE="/storage/emulated/0"
 ANDROID_DATA="$STORAGE/Android/data"
-ZIP="$STORAGE/CODEX.zip"
+ZIP="$STORAGE/Codex.zip"
 TMP="$STORAGE/__delta_tmp"
 
 DELTA_OUT="$STORAGE/Codex"
