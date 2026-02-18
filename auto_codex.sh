@@ -3,7 +3,7 @@ set -e
 
 STORAGE="/storage/emulated/0"
 ANDROID_DATA="$STORAGE/Android/data"
-ZIP="$STORAGE/Codex.zip"
+ZIP="$STORAGE/CODEX.zip"
 TMP="$STORAGE/__delta_tmp"
 
 DELTA_OUT="$STORAGE/Codex"
@@ -73,8 +73,8 @@ shopt -s nullglob
 for ITEM in "$TMP"/*; do
   NAME="$(basename "$ITEM")"
 
-  if [ "$NAME" = "Delta" ]; then
-    log "Replace Delta -> $DELTA_OUT"
+  if [ "$NAME" = "Codex" ]; then
+    log "Replace Codex -> $DELTA_OUT"
     rm -rf "$DELTA_OUT"
     mv "$ITEM" "$DELTA_OUT"
 
