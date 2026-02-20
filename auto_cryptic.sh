@@ -5,11 +5,9 @@ STORAGE="/storage/emulated/0"
 ANDROID_DATA="$STORAGE/Android/data"
 ZIP="$STORAGE/CRYPTIC.zip"
 TMP="$STORAGE/__delta_tmp"
-
 DELTA_OUT="$STORAGE/Cryptic"
 DOWNLOAD_OUT="$STORAGE/Download"
 CONF="$STORAGE/Download/WinterHub/auto_rejoin.conf"
-
 TTY="/dev/tty"
 LOGF="/data/data/com.termux/files/usr/tmp/auto_install.log"
 
@@ -35,21 +33,17 @@ run() {
   local title="$1"; shift
   mkdir -p "$(dirname "$LOGF")"
   : > "$LOGF"
-
-  echo -n "[*] $title... "
+  echo -n "[*] $title..."
   ("$@") >>"$LOGF" 2>&1 &
   local pid=$!
-
   local spin='-\|/'
   local i=0
   while kill -0 "$pid" 2>/dev/null; do
     printf "\b%s" "${spin:i++%4:1}"
     sleep 0.12
   done
-
   wait "$pid"
   local rc=$?
-
   if [ $rc -eq 0 ]; then
     printf "\b✅\n"
   else
@@ -61,66 +55,7 @@ run() {
 }
 
 ###############################################################################
-log "STEP 1/4: APPLY ZIP (PACKAGE + Delta + Download)"
-
-[ -f "$ZIP" ] || { echo "ZIP not found: $ZIP"; exit 1; }
-
-rm -rf "$TMP"
-mkdir -p "$TMP"
-unzip -q "$ZIP" -d "$TMP"
-
-shopt -s nullglob
-for ITEM in "$TMP"/*; do
-  NAME="$(basename "$ITEM")"
-
-  if [ "$NAME" = "Cryptic" ]; then
-    log "Replace Cryptic -> $DELTA_OUT"
-    rm -rf "$DELTA_OUT"
-    mv "$ITEM" "$DELTA_OUT"
-
-  elif [ "$NAME" = "Download" ]; then
-    log "Replace Download -> $DOWNLOAD_OUT"
-    # sesuai request kamu: replace total Download
-    rm -rf "$DOWNLOAD_OUT"
-    mv "$ITEM" "$DOWNLOAD_OUT"
-
-  else
-    log "Replace package: $NAME -> $ANDROID_DATA/$NAME"
-    rm -rf "$ANDROID_DATA/$NAME"
-    mv "$ITEM" "$ANDROID_DATA/$NAME"
-  fi
-done
-
-rm -rf "$TMP"
-log "ZIP applied OK"
-
-###############################################################################
-log "STEP 2/4: ANDROID TWEAKS (root optional)"
-
-if command -v su >/dev/null 2>&1; then
-  su -c '
-    wm density 192 &&
-    settings put global window_animation_scale 0 &&
-    settings put global transition_animation_scale 0 &&
-    settings put global animator_duration_scale 0 &&
-    settings put global force_resizable_activities 1 &&
-    settings put global enable_freeform_support 1
-  ' || warn "Root tweak skipped"
-else
-  warn "su not found, skip tweaks"
-fi
-
-###############################################################################
-log "STEP 3/4: SETUP + PYTHON RESOLVE ROBLOX SHARE LINK (WITH PROGRESS)"
-
-# storage permission (aman kalau sudah pernah)
-termux-setup-storage || true
-
-# install deps pakai progress spinner
-run "pkg update" pkg update -y
-run "install python + lua + sqlite + termux-api + sed" pkg install -y python lua53 sqlite termux-api sed
-run "pip install requests" python3 -m pip install -U requests
-
+# ASK INPUTS AT THE VERY BEGINNING (NOT MID-SCRIPT)
 DEVICE_LABEL=""
 SHARE_LINK=""
 
@@ -134,6 +69,55 @@ while ! echo "$SHARE_LINK" | grep -qiE '^https?://'; do
   warn "Harus URL http/https. Input kamu: '$SHARE_LINK'"
   read_tty "roblox SHARE link: " SHARE_LINK
 done
+
+log "Input OK"
+log " - device_label: $DEVICE_LABEL"
+log " - share link  : $SHARE_LINK"
+
+###############################################################################
+log "STEP 1/4: APPLY ZIP (PACKAGE + Delta + Download)"
+[ -f "$ZIP" ] || { echo "ZIP not found: $ZIP"; exit 1; }
+
+rm -rf "$TMP"
+mkdir -p "$TMP"
+unzip -q "$ZIP" -d "$TMP"
+
+shopt -s nullglob
+for ITEM in "$TMP"/*; do
+  NAME="$(basename "$ITEM")"
+  if [ "$NAME" = "Cryptic" ]; then
+    log "Replace Cryptic -> $DELTA_OUT"
+    rm -rf "$DELTA_OUT"
+    mv "$ITEM" "$DELTA_OUT"
+  elif [ "$NAME" = "Download" ]; then
+    log "Replace Download -> $DOWNLOAD_OUT"
+    rm -rf "$DOWNLOAD_OUT"
+    mv "$ITEM" "$DOWNLOAD_OUT"
+  else
+    log "Replace package: $NAME -> $ANDROID_DATA/$NAME"
+    rm -rf "$ANDROID_DATA/$NAME"
+    mv "$ITEM" "$ANDROID_DATA/$NAME"
+  fi
+done
+
+rm -rf "$TMP"
+log "ZIP applied OK"
+
+###############################################################################
+log "STEP 2/4: ANDROID TWEAKS (root optional)"
+if command -v su >/dev/null 2>&1; then
+  su -c ' wm density 192 && settings put global window_animation_scale 0 && settings put global transition_animation_scale 0 && settings put global animator_duration_scale 0 && settings put global force_resizable_activities 1 && settings put global enable_freeform_support 1 ' || warn "Root tweak skipped"
+else
+  warn "su not found, skip tweaks"
+fi
+
+###############################################################################
+log "STEP 3/4: SETUP + PYTHON RESOLVE ROBLOX SHARE LINK (WITH PROGRESS)"
+termux-setup-storage || true
+
+run "pkg update" pkg update -y
+run "install python + lua + sqlite + termux-api + sed" pkg install -y python lua53 sqlite termux-api sed
+run "pip install requests" python3 -m pip install -U requests
 
 log "Resolving link via Python (retry 5x)..."
 FINAL_LINK="$(python3 -c '
@@ -169,7 +153,6 @@ def attempt(u):
     return "https://www.roblox.com" + m2.group(0)
   return None
 
-out = None
 for _ in range(5):
   try:
     out = attempt(url)
@@ -193,7 +176,6 @@ echo "$FINAL_LINK"
 
 ###############################################################################
 log "WRITE CONFIG: $CONF"
-
 mkdir -p "$(dirname "$CONF")"
 
 sed -i \
@@ -214,8 +196,5 @@ log "Config updated OK"
 
 ###############################################################################
 log "STEP 4/4: RUN winter-rejoin.lua (NO DOWNLOAD)"
-
 cd /sdcard/Download
 lua winter-rejoin.lua </dev/null
-
-log "ALL DONE ✅"
