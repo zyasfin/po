@@ -1,10 +1,11 @@
-#!/bin/sh
+#!/bin/bash
 
 # ============================================================
-#   ANDROID SPOOFER + PROFILE MANAGER
-#   Run with: su -c "bash <(curl -s <url>)"
+# ANDROID SPOOFER + PROFILE MANAGER (BASH VERSION)
+# Run: su -c "bash script.sh"
 # ============================================================
 
+# ================= COLORS =================
 R='\033[0;31m'
 G='\033[0;32m'
 Y='\033[1;33m'
@@ -12,275 +13,236 @@ C='\033[0;36m'
 W='\033[1;37m'
 N='\033[0m'
 
+# ================= CONFIG =================
 GH_USER="zyasfin"
 GH_REPO="po"
-GH_TOKEN="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"
 GH_BRANCH="main"
+GH_TOKEN="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"   # <-- ISI TOKEN BARU DI SINI
+
 PROFILES_DIR="profiles"
 API="https://api.github.com/repos/${GH_USER}/${GH_REPO}/contents/${PROFILES_DIR}"
 
 # ============================================================
-# CEK ROOT - jalankan ulang pakai su kalau belum root
+# ROOT CHECK
 # ============================================================
-if [ "$(id -u)" != "0" ]; then
-    echo -e "${Y}[*] Bukan root, mencoba su...${N}"
-    SCRIPT_URL="https://raw.githubusercontent.com/${GH_USER}/${GH_REPO}/${GH_BRANCH}/android_spoofer.sh"
-    curl -s "$SCRIPT_URL" > /sdcard/Download/sp.sh
-    exec su -c "sh /sdcard/Download/sp.sh $*"
-    exit 1
+if [[ $(id -u) -ne 0 ]]; then
+    echo -e "${Y}[*] Restarting as root...${N}"
+    exec su -c "bash $0 $*"
+    exit
 fi
 
 # ============================================================
-# GENERATE
+# RANDOM GENERATORS
 # ============================================================
+
 rand_imei() {
-    awk 'BEGIN{
-        srand();
-        tac="86794503";
-        snr=sprintf("%06d",int(rand()*999999));
-        base=tac snr;
-        sum=0; dbl=0;
-        for(i=length(base);i>=1;i--){
-            d=substr(base,i,1)+0;
-            if(dbl==1){d=d*2; if(d>9)d=d-9}
-            sum+=d; dbl=1-dbl
-        }
-        check=(10-(sum%10))%10;
-        print base check
-    }'
+    local tac="86794503"
+    local snr
+    snr=$(printf "%06d" $((RANDOM%999999)))
+    local base="${tac}${snr}"
+    local sum=0 dbl=0 d
+
+    for ((i=${#base}-1;i>=0;i--)); do
+        d=${base:$i:1}
+        if (( dbl==1 )); then
+            d=$((d*2))
+            (( d>9 )) && d=$((d-9))
+        fi
+        sum=$((sum+d))
+        dbl=$((1-dbl))
+    done
+
+    local check=$(((10-(sum%10))%10))
+    echo "${base}${check}"
 }
+
 rand_mac() {
-    awk 'BEGIN{srand();printf "02:%02x:%02x:%02x:%02x:%02x\n",int(rand()*255),int(rand()*255),int(rand()*255),int(rand()*255),int(rand()*255)}'
+    printf "02:%02x:%02x:%02x:%02x:%02x\n" \
+        $((RANDOM%256)) $((RANDOM%256)) \
+        $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256))
 }
+
 rand_id() {
-    cat /dev/urandom | tr -dc 'a-f0-9' | head -c 16; echo
+    tr -dc 'a-f0-9' </dev/urandom | head -c 16
+    echo
 }
+
 rand_serial() {
-    CHARS="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    S="XMP"
-    for i in 1 2 3 4 5 6 7 8; do S="${S}$(echo "$CHARS" | cut -c$((RANDOM%36+1)))"; done
-    echo "$S"
+    local chars="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    local s="XMP"
+    for i in {1..8}; do
+        s+="${chars:RANDOM%36:1}"
+    done
+    echo "$s"
 }
-rand_gsf() { printf "%016x\n" $((RANDOM*RANDOM*RANDOM % 0xFFFFFFFFFFFFFF)); }
 
 # ============================================================
 # DEVICE INFO
 # ============================================================
 get_device_info() {
-    MODEL=$(getprop ro.product.model 2>/dev/null);   [ -z "$MODEL" ]   && MODEL="Unknown"
-    BRAND=$(getprop ro.product.brand 2>/dev/null);   [ -z "$BRAND" ]   && BRAND="Unknown"
-    BOARD=$(getprop ro.product.board 2>/dev/null);   [ -z "$BOARD" ]   && BOARD="Unknown"
-    SERIAL=$(getprop ro.serialno 2>/dev/null);       [ -z "$SERIAL" ]  && SERIAL="Unknown"
-    MAC_NOW=$(cat /sys/class/net/wlan0/address 2>/dev/null); [ -z "$MAC_NOW" ] && MAC_NOW="N/A"
-    IMEI_NOW=$(getprop persist.radio.imei 2>/dev/null); [ -z "$IMEI_NOW" ] && IMEI_NOW="N/A"
-    AID_NOW=$(settings get secure android_id 2>/dev/null); [ -z "$AID_NOW" ] && AID_NOW="N/A"
-}
-
-print_header() {
-    clear
-    echo -e "${G} ========================================${N}"
-    echo -e "${G}   ANDROID SPOOFER + PROFILE MANAGER${N}"
-    echo -e "${G}   running as: $(id)${N}"
-    echo -e "${G} ========================================${N}"
-    echo ""
-}
-
-print_device() {
-    echo -e " ${C}Device ${N}: ${W}${MODEL} (${BRAND})${N}"
-    echo -e " ${C}Board  ${N}: ${W}${BOARD}${N}"
-    echo -e " ${C}Serial ${N}: ${Y}${SERIAL}${N}"
-    echo -e " ${C}MAC    ${N}: ${Y}${MAC_NOW}${N}"
-    echo -e " ${C}IMEI   ${N}: ${Y}${IMEI_NOW}${N}"
-    echo -e " ${C}And.ID ${N}: ${Y}${AID_NOW}${N}"
-    echo ""
+    MODEL=$(getprop ro.product.model 2>/dev/null || echo "Unknown")
+    BRAND=$(getprop ro.product.brand 2>/dev/null || echo "Unknown")
+    BOARD=$(getprop ro.product.board 2>/dev/null || echo "Unknown")
+    SERIAL=$(getprop ro.serialno 2>/dev/null || echo "Unknown")
+    MAC_NOW=$(cat /sys/class/net/wlan0/address 2>/dev/null || echo "N/A")
+    IMEI_NOW=$(getprop persist.radio.imei 2>/dev/null || echo "N/A")
+    AID_NOW=$(settings get secure android_id 2>/dev/null || echo "N/A")
 }
 
 # ============================================================
-# APPLY
+# APPLY IDS
 # ============================================================
 apply_ids() {
-    local IMEI=$1 MAC=$2 AID=$3 SERIAL=$4
 
-    echo ""
-    echo -ne " ${C}[*] Android ID...${N} "
-    settings put secure android_id "$AID" 2>/dev/null && echo -e "${G}OK${N}" || echo -e "${R}GAGAL${N}"
+    local IMEI="$1"
+    local MAC="$2"
+    local AID="$3"
+    local SERIAL="$4"
 
-    echo -ne " ${C}[*] Serial...${N} "
-    setprop ro.serialno "$SERIAL" 2>/dev/null && echo -e "${G}OK${N}" || echo -e "${R}GAGAL${N}"
+    echo -e "\n${C}Applying IDs...${N}"
 
-    echo -ne " ${C}[*] MAC...${N} "
-    ip link set wlan0 address "$MAC" 2>/dev/null && echo -e "${G}OK${N}" || echo -e "${R}GAGAL${N}"
+    settings put secure android_id "$AID" 2>/dev/null
+    setprop ro.serialno "$SERIAL" 2>/dev/null
+    ip link set wlan0 address "$MAC" 2>/dev/null
 
-    echo -ne " ${C}[*] Build.prop...${N} "
-    mount -o remount,rw /system 2>/dev/null
-    cp /system/build.prop /system/build.prop.bak 2>/dev/null
-    sed -i "s/ro.serialno=.*/ro.serialno=$SERIAL/" /system/build.prop 2>/dev/null
-    mount -o remount,ro /system 2>/dev/null
-    echo -e "${G}OK${N}"
-
-    echo -ne " ${C}[*] Reset GSF...${N} "
-    pm clear com.google.android.gsf 2>/dev/null && echo -e "${G}OK${N}" || echo -e "${R}GAGAL${N}"
-
-    echo -ne " ${C}[*] Reset Ad ID...${N} "
-    pm clear com.google.android.gms 2>/dev/null && echo -e "${G}OK${N}" || echo -e "${R}GAGAL${N}"
-
-    echo -ne " ${C}[*] IMEI (EFS)...${N} "
-    if [ -f /efs/imei/imei1 ]; then
-        echo "$IMEI" > /efs/imei/imei1 && echo -e "${G}OK${N}" || echo -e "${R}GAGAL${N}"
-    else
-        echo -e "${Y}SKIP (tidak ada /efs)${N}"
+    if [[ -f /efs/imei/imei1 ]]; then
+        echo "$IMEI" > /efs/imei/imei1
     fi
 
-    echo ""
-    echo -e "${G} ---- APPLIED ----${N}"
-    echo -e " ${Y}IMEI   ${N}: ${W}${IMEI}${N}"
-    echo -e " ${Y}MAC    ${N}: ${W}${MAC}${N}"
-    echo -e " ${Y}And.ID ${N}: ${W}${AID}${N}"
-    echo -e " ${Y}Serial ${N}: ${W}${SERIAL}${N}"
-    echo -e "\n ${C}[!] Restart untuk menerapkan semua perubahan.${N}\n"
+    echo -e "\n${G}DONE${N}"
+    echo -e "IMEI   : $IMEI"
+    echo -e "MAC    : $MAC"
+    echo -e "And.ID : $AID"
+    echo -e "Serial : $SERIAL"
+    echo -e "\n${Y}Reboot required.${N}"
 }
 
 # ============================================================
 # GITHUB
 # ============================================================
+
 gh_list_profiles() {
-    curl -s -H "Authorization: token ${GH_TOKEN}" "${API}" 2>/dev/null | \
-        grep -oP '"name":"\K[^"]+(?=\.json")'
+    curl -s -H "Authorization: token ${GH_TOKEN}" "$API" \
+    | grep '"name"' \
+    | cut -d '"' -f4 \
+    | sed 's/.json//'
 }
 
 gh_get_profile() {
-    curl -s -H "Authorization: token ${GH_TOKEN}" "${API}/$1.json" 2>/dev/null | \
-        grep -oP '"content":"\K[^"]+' | tr -d '\\n' | base64 -d 2>/dev/null
+    curl -s -H "Authorization: token ${GH_TOKEN}" "$API/$1.json" \
+    | grep '"content"' \
+    | cut -d '"' -f4 \
+    | tr -d '\n' \
+    | base64 -d 2>/dev/null
 }
 
 gh_save_profile() {
-    local NAME=$1 CONTENT=$2
-    local ENCODED=$(echo "$CONTENT" | base64 -w 0)
-    local SHA=$(curl -s -H "Authorization: token ${GH_TOKEN}" "${API}/${NAME}.json" | \
-        grep -oP '"sha":"\K[^"]+' | head -1)
+
+    local NAME="$1"
+    local CONTENT="$2"
+    local ENCODED
+    ENCODED=$(echo "$CONTENT" | base64 | tr -d '\n')
+
+    local SHA
+    SHA=$(curl -s -H "Authorization: token ${GH_TOKEN}" "$API/${NAME}.json" \
+        | grep '"sha"' | head -1 | cut -d '"' -f4)
+
     local PAYLOAD
-    if [ -n "$SHA" ]; then
+
+    if [[ -n "$SHA" ]]; then
         PAYLOAD="{\"message\":\"Update ${NAME}\",\"content\":\"${ENCODED}\",\"sha\":\"${SHA}\",\"branch\":\"${GH_BRANCH}\"}"
     else
         PAYLOAD="{\"message\":\"Add ${NAME}\",\"content\":\"${ENCODED}\",\"branch\":\"${GH_BRANCH}\"}"
     fi
+
     curl -s -X PUT \
         -H "Authorization: token ${GH_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "$PAYLOAD" \
-        "${API}/${NAME}.json" | grep -q '"content"' && return 0 || return 1
+        "$API/${NAME}.json" >/dev/null
 }
 
 # ============================================================
-# MENU FUNCTIONS
+# MENU
 # ============================================================
+
+menu_spoof() {
+    local I M A S
+    I=$(rand_imei)
+    M=$(rand_mac)
+    A=$(rand_id)
+    S=$(rand_serial)
+
+    echo -e "\n${W}New IDs:${N}"
+    echo "IMEI   : $I"
+    echo "MAC    : $M"
+    echo "And.ID : $A"
+    echo "Serial : $S"
+
+    read -p "Apply? (y/n): " C
+    [[ "$C" =~ ^[Yy]$ ]] && apply_ids "$I" "$M" "$A" "$S"
+}
+
 menu_save() {
     get_device_info
-    COUNTER=$(gh_list_profiles | grep -c "^${BRAND}_${MODEL}_" 2>/dev/null || echo 0)
-    PROF_NAME="${BRAND}_${MODEL}_$(printf '%03d' $((COUNTER+1)))"
-    PROF_NAME=$(echo "$PROF_NAME" | tr ' ' '_')
 
-    echo -e " ${C}Nama profil: ${W}${PROF_NAME}${N}"
-    echo -ne " Ganti nama? (Enter = pakai ini): "
-    read -r CUSTOM
-    [ -n "$CUSTOM" ] && PROF_NAME=$(echo "$CUSTOM" | tr ' ' '_')
+    local NAME="${BRAND}_${MODEL}_$(date +%s)"
+    NAME=$(echo "$NAME" | tr ' ' '_')
 
-    JSON="{\"name\":\"${PROF_NAME}\",\"brand\":\"${BRAND}\",\"model\":\"${MODEL}\",\"board\":\"${BOARD}\",\"serial\":\"${SERIAL}\",\"imei\":\"${IMEI_NOW}\",\"mac\":\"${MAC_NOW}\",\"android_id\":\"${AID_NOW}\",\"saved_at\":\"$(date '+%Y-%m-%d %H:%M:%S')\"}"
+    JSON="{\"brand\":\"${BRAND}\",\"model\":\"${MODEL}\",\"serial\":\"${SERIAL}\",\"android_id\":\"${AID_NOW}\"}"
 
-    echo -e " ${Y}[*] Menyimpan ke GitHub...${N}"
-    gh_save_profile "$PROF_NAME" "$JSON" \
-        && echo -e " ${G}[+] Tersimpan: ${PROF_NAME}${N}" \
-        || echo -e " ${R}[!] Gagal simpan.${N}"
+    gh_save_profile "$NAME" "$JSON"
+
+    echo -e "${G}Saved as ${NAME}${N}"
 }
 
 menu_load() {
-    echo -e " ${Y}[*] Mengambil profil dari GitHub...${N}"
-    PROFILES=($(gh_list_profiles))
-    [ ${#PROFILES[@]} -eq 0 ] && echo -e " ${R}[!] Tidak ada profil.${N}" && return
 
-    echo ""
-    for i in "${!PROFILES[@]}"; do
-        echo -e "  ${G}[$((i+1))]${N} ${PROFILES[$i]}"
-    done
-    echo ""
-    echo -ne " Pilih profil > "
-    read -r PNUM
-    PNAME="${PROFILES[$((PNUM-1))]}"
-    [ -z "$PNAME" ] && echo -e " ${R}Tidak valid.${N}" && return
+    mapfile -t PROFILES < <(gh_list_profiles)
 
-    PJSON=$(gh_get_profile "$PNAME")
-    [ -z "$PJSON" ] && echo -e " ${R}[!] Gagal load.${N}" && return
-
-    P_SERIAL=$(echo "$PJSON" | grep -oP '"serial":"\K[^"]+')
-    P_AID=$(echo "$PJSON" | grep -oP '"android_id":"\K[^"]+')
-
-    echo ""
-    echo -e " ${W}[1]${N} CLONE — Device ID & Serial sama, IMEI/MAC random"
-    echo -e " ${W}[2]${N} FULL RANDOM — semua ID baru"
-    echo -ne " Pilih > "
-    read -r MODE
-
-    if [ "$MODE" == "1" ]; then
-        echo -e "\n ${C}Android ID : ${W}${P_AID}${N}"
-        echo -e " ${C}Serial     : ${W}${P_SERIAL}${N}"
-        apply_ids "$(rand_imei)" "$(rand_mac)" "$P_AID" "$P_SERIAL"
-    elif [ "$MODE" == "2" ]; then
-        apply_ids "$(rand_imei)" "$(rand_mac)" "$(rand_id)" "$(rand_serial)"
+    if [[ ${#PROFILES[@]} -eq 0 ]]; then
+        echo "No profiles."
+        return
     fi
-}
 
-menu_spoof_new() {
-    I=$(rand_imei); M=$(rand_mac); A=$(rand_id); S=$(rand_serial)
-    echo ""
-    echo -e " ${W}ID Baru:${N}"
-    echo -e " IMEI   : ${G}${I}${N}"
-    echo -e " MAC    : ${G}${M}${N}"
-    echo -e " And.ID : ${G}${A}${N}"
-    echo -e " Serial : ${G}${S}${N}"
-    echo ""
-    echo -ne " Apply? (y/n) > "
-    read -r C
-    [ "$C" = "y" ] || [ "$C" = "Y" ] && apply_ids "$I" "$M" "$A" "$S" || echo -e " ${Y}Dibatalkan.${N}"
-}
+    echo
+    for i in "${!PROFILES[@]}"; do
+        echo "[$((i+1))] ${PROFILES[$i]}"
+    done
 
-# ============================================================
-# ARGUMENT MODE
-# ============================================================
-if [ "$1" == "load" ]; then
-    PNAME="$2"; MODE="$3"
-    [ -z "$PNAME" ] || [ -z "$MODE" ] && echo -e "${R}Usage: script.sh load <profile> <1|2>${N}" && exit 1
+    read -p "Select: " NUM
+    PNAME="${PROFILES[$((NUM-1))]}"
+
+    [[ -z "$PNAME" ]] && return
+
     PJSON=$(gh_get_profile "$PNAME")
-    [ -z "$PJSON" ] && echo -e "${R}[!] Profil tidak ditemukan: ${PNAME}${N}" && exit 1
-    P_SERIAL=$(echo "$PJSON" | grep -oP '"serial":"\K[^"]+')
-    P_AID=$(echo "$PJSON" | grep -oP '"android_id":"\K[^"]+')
-    [ "$MODE" == "1" ] && apply_ids "$(rand_imei)" "$(rand_mac)" "$P_AID" "$P_SERIAL" \
-                       || apply_ids "$(rand_imei)" "$(rand_mac)" "$(rand_id)" "$(rand_serial)"
-    exit 0
-fi
 
-[ "$1" == "save"  ] && get_device_info && menu_save  && exit 0
-[ "$1" == "spoof" ] && get_device_info && menu_spoof_new && exit 0
-[ "$1" == "list"  ] && gh_list_profiles | nl -w2 -s") " && exit 0
+    P_SERIAL=$(echo "$PJSON" | sed -n 's/.*"serial":"\([^"]*\)".*/\1/p')
+    P_AID=$(echo "$PJSON" | sed -n 's/.*"android_id":"\([^"]*\)".*/\1/p')
+
+    apply_ids "$(rand_imei)" "$(rand_mac)" "$P_AID" "$P_SERIAL"
+}
 
 # ============================================================
-# INTERACTIVE
+# MAIN
 # ============================================================
-get_device_info
-print_header
-print_device
 
-echo -e " ${W}[1]${N} Spoof ID Baru (random)"
-echo -e " ${W}[2]${N} Simpan profil device ini → GitHub"
-echo -e " ${W}[3]${N} Load & Apply profil dari GitHub"
-echo -e " ${W}[0]${N} Keluar"
-echo ""
-echo -ne " Pilih menu > "
-read -r CHOICE
+clear
+echo -e "${G}ANDROID SPOOFER - BASH VERSION${N}"
 
-case $CHOICE in
-    1) menu_spoof_new ;;
+echo
+echo "[1] Spoof Random"
+echo "[2] Save Profile"
+echo "[3] Load Profile"
+echo "[0] Exit"
+echo
+
+read -p "Select: " CH
+
+case "$CH" in
+    1) menu_spoof ;;
     2) menu_save ;;
     3) menu_load ;;
-    0) echo -e "\n ${Y}Bye!${N}\n" ;;
-    *) echo -e "\n ${R}Pilihan tidak valid.${N}\n" ;;
+    0) exit ;;
+    *) echo "Invalid." ;;
 esac
