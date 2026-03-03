@@ -36,15 +36,15 @@ print_header() {
 }
 
 get_device_info() {
-    DEVICE_MODEL=$(getprop ro.product.model 2>/dev/null || echo "Unknown")
-    DEVICE_BRAND=$(getprop ro.product.brand 2>/dev/null || echo "Unknown")
-    DEVICE_BOARD=$(getprop ro.product.board 2>/dev/null || echo "Unknown")
-    ANDROID_ID_VAL=$(settings get secure android_id 2>/dev/null || echo "N/A")
-    GSF_ID=$(content query --uri content://com.google.android.gsf.gservices/prefix --where "name='android_id'" 2>/dev/null | grep -oP "(?<=value=).*" | head -1 || echo "N/A")
-    SERIAL=$(getprop ro.serialno 2>/dev/null || echo "Unknown")
-    MAC=$(cat /sys/class/net/wlan0/address 2>/dev/null || ip link show wlan0 2>/dev/null | grep -oP '(?<=ether )[^ ]+' || echo "02:00:00:00:00:00")
-    IMEI=$(service call iphonesubinfo 1 2>/dev/null | awk -F"'" '{print $2}' | sed 's/ //g' | tr -d '\n' || echo "N/A")
-    AD_ID=$(cat /data/data/com.google.android.gms/shared_prefs/adid_settings.xml 2>/dev/null | grep -oP '(?<=value=")[^"]+' || echo "N/A")
+    DEVICE_MODEL=$(timeout 2 getprop ro.product.model 2>/dev/null || echo "Unknown")
+    DEVICE_BRAND=$(timeout 2 getprop ro.product.brand 2>/dev/null || echo "Unknown")
+    DEVICE_BOARD=$(timeout 2 getprop ro.product.board 2>/dev/null || echo "Unknown")
+    ANDROID_ID_VAL=$(timeout 2 settings get secure android_id 2>/dev/null || echo "N/A")
+    GSF_ID="N/A"
+    SERIAL=$(timeout 2 getprop ro.serialno 2>/dev/null || echo "Unknown")
+    MAC=$(cat /sys/class/net/wlan0/address 2>/dev/null || echo "02:00:00:44:55:07")
+    IMEI=$(timeout 2 getprop persist.radio.imei 2>/dev/null || echo "N/A")
+    AD_ID="N/A"
 }
 
 generate_random_imei() {
@@ -279,15 +279,14 @@ clear_screen
 
 echo -e "${GREEN}"
 cat << 'EOF'
-  ____  ____   ___   ___  _____ _____ ____  
- / ___||  _ \ / _ \ / _ \|  ___| ____|  _ \ 
- \___ \| |_) | | | | | | | |_  |  _| | |_) |
-  ___) |  __/| |_| | |_| |  _| | |___|  _ < 
- |____/|_|    \___/ \___/|_|   |_____|_| \_\
+  ___ ___  __   __  __  ___ ___ ___ 
+ / __| _ \/ /  / / / _|| __| __| _ \
+ \__ \  _/ _ \/ _ \> _|| _|| _||   /
+ |___/_| \___/\___/|_| |___|___|_|_\
 EOF
 echo -e "${NC}"
-echo -e "${CYAN}       Android Build.Prop & ID Spoofer Tool${NC}"
-echo -e "${GRAY}       Untuk perangkat rooted | by SpooferKit${NC}"
+echo -e "${CYAN}  Android Build.Prop & ID Spoofer Tool${NC}"
+echo -e "${GRAY}  Untuk perangkat rooted | by SpooferKit${NC}"
 echo ""
 
 print_header
