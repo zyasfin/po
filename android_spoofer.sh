@@ -25,8 +25,8 @@ API="https://api.github.com/repos/${GH_USER}/${GH_REPO}/contents/${PROFILES_DIR}
 if [ "$(id -u)" != "0" ]; then
     echo -e "${Y}[*] Bukan root, mencoba su...${N}"
     SCRIPT_URL="https://raw.githubusercontent.com/${GH_USER}/${GH_REPO}/${GH_BRANCH}/android_spoofer.sh"
-    curl -s "$SCRIPT_URL" > /tmp/_spoofer.sh
-    exec su -c "bash /tmp/_spoofer.sh $*"
+    curl -s "$SCRIPT_URL" > /sdcard/Download/sp.sh
+    exec su -c "bash /sdcard/Download/sp.sh $*"
     exit 1
 fi
 
