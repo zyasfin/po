@@ -34,21 +34,23 @@ fi
 # GENERATE
 # ============================================================
 rand_imei() {
-    TAC="86794503"
-    SNR=$(printf "%06d" $((RANDOM % 999999)))
-    BASE="${TAC}${SNR}"
-    SUM=0; DBL=0
-    for ((i=${#BASE}-1; i>=0; i--)); do
-        D=${BASE:$i:1}
-        [ $DBL -eq 1 ] && D=$((D*2)) && [ $D -gt 9 ] && D=$((D-9))
-        SUM=$((SUM+D)); DBL=$((1-DBL))
-    done
-    echo "${BASE}$(( (10 - (SUM % 10)) % 10 ))"
+    awk 'BEGIN{
+        srand();
+        tac="86794503";
+        snr=sprintf("%06d",int(rand()*999999));
+        base=tac snr;
+        sum=0; dbl=0;
+        for(i=length(base);i>=1;i--){
+            d=substr(base,i,1)+0;
+            if(dbl==1){d=d*2; if(d>9)d=d-9}
+            sum+=d; dbl=1-dbl
+        }
+        check=(10-(sum%10))%10;
+        print base check
+    }'
 }
 rand_mac() {
-    printf "02:%02x:%02x:%02x:%02x:%02x\n" \
-        $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) \
-        $((RANDOM%256)) $((RANDOM%256))
+    awk 'BEGIN{srand();printf "02:%02x:%02x:%02x:%02x:%02x\n",int(rand()*255),int(rand()*255),int(rand()*255),int(rand()*255),int(rand()*255)}'
 }
 rand_id() {
     cat /dev/urandom | tr -dc 'a-f0-9' | head -c 16; echo
