@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # ============================================================
 #   ANDROID SPOOFER + PROFILE MANAGER
@@ -26,7 +26,7 @@ if [ "$(id -u)" != "0" ]; then
     echo -e "${Y}[*] Bukan root, mencoba su...${N}"
     SCRIPT_URL="https://raw.githubusercontent.com/${GH_USER}/${GH_REPO}/${GH_BRANCH}/android_spoofer.sh"
     curl -s "$SCRIPT_URL" > /sdcard/Download/sp.sh
-    exec su -c "bash /sdcard/Download/sp.sh $*"
+    exec su -c "sh /sdcard/Download/sp.sh $*"
     exit 1
 fi
 
@@ -56,7 +56,7 @@ rand_id() {
 rand_serial() {
     CHARS="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     S="XMP"
-    for i in {1..8}; do S+="${CHARS:$((RANDOM%${#CHARS})):1}"; done
+    for i in 1 2 3 4 5 6 7 8; do S="${S}$(echo "$CHARS" | cut -c$((RANDOM%36+1)))"; done
     echo "$S"
 }
 rand_gsf() { printf "%016x\n" $((RANDOM*RANDOM*RANDOM % 0xFFFFFFFFFFFFFF)); }
@@ -238,7 +238,7 @@ menu_spoof_new() {
     echo ""
     echo -ne " Apply? (y/n) > "
     read -r C
-    [[ "$C" == "y" || "$C" == "Y" ]] && apply_ids "$I" "$M" "$A" "$S" || echo -e " ${Y}Dibatalkan.${N}"
+    [ "$C" = "y" ] || [ "$C" = "Y" ] && apply_ids "$I" "$M" "$A" "$S" || echo -e " ${Y}Dibatalkan.${N}"
 }
 
 # ============================================================
