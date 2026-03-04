@@ -37,8 +37,7 @@ LICENSE_PATHS=(
 # JANGAN EDIT DI BAWAH INI
 # ════════════════════════════════════════════════════════════════
 
-POLL_INTERVAL=2             # cek clipboard tiap 2 detik (normal)
-LONG_POLL_INTERVAL=900      # 15 menit setelah dapat popup
+POLL_INTERVAL=2             # cek clipboard tiap 2 detik, selalu
 CURRENT_INTERVAL=$POLL_INTERVAL
 LAST_CLIP=""
 LAST_POPUP_TIME=0
@@ -176,10 +175,8 @@ handle_link() {
     sleep 1
     kill_all_packages
 
-    # Set interval ke 15 menit
     LAST_POPUP_TIME=$(date +%s)
-    CURRENT_INTERVAL=$LONG_POLL_INTERVAL
-    log OK "Selesai! Interval -> 15 menit"
+    log OK "Selesai! Tetap listening..."
     log INFO "─────────────────────────────────"
 }
 
@@ -256,17 +253,7 @@ main() {
         current_clip=$(get_clipboard)
 
         # Skip kalau kosong atau sama
-        [[ -z "$current_clip" || "$current_clip" == "$LAST_CLIP" ]] && {
-            # Reset interval kalau sudah lewat 15 menit
-            local now elapsed
-            now=$(date +%s)
-            elapsed=$((now - LAST_POPUP_TIME))
-            if [[ $CURRENT_INTERVAL -eq $LONG_POLL_INTERVAL && $elapsed -gt $LONG_POLL_INTERVAL ]]; then
-                CURRENT_INTERVAL=$POLL_INTERVAL
-                log INFO "Interval reset ke normal (${POLL_INTERVAL}s)"
-            fi
-            continue
-        }
+        [[ -z "$current_clip" || "$current_clip" == "$LAST_CLIP" ]] && continue
 
         # Ada perubahan
         LAST_CLIP="$current_clip"
@@ -276,14 +263,6 @@ main() {
             handle_link "$current_clip"
         fi
 
-        # Cek reset interval
-        local now elapsed
-        now=$(date +%s)
-        elapsed=$((now - LAST_POPUP_TIME))
-        if [[ $CURRENT_INTERVAL -eq $LONG_POLL_INTERVAL && $elapsed -gt $LONG_POLL_INTERVAL ]]; then
-            CURRENT_INTERVAL=$POLL_INTERVAL
-            log INFO "Interval reset ke normal (${POLL_INTERVAL}s)"
-        fi
     done
 }
 
