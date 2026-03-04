@@ -99,7 +99,7 @@ fetch_key() {
     local link="$1"
     local response
 
-    log INFO "Menghubungi API... (bisa 40-60 detik)"
+    log INFO "Menghubungi API... (bisa 40-60 detik)" >&2
     response=$(curl -s -X POST "$API_URL" \
         -H "Content-Type: application/json" \
         -H "User-Agent: RootBot-Termux/1.0" \
@@ -109,7 +109,7 @@ fetch_key() {
         2>/dev/null)
 
     if [[ -z "$response" ]]; then
-        log ERROR "Tidak ada response dari API"
+        log ERROR "Tidak ada response dari API" >&2
         return 1
     fi
 
@@ -121,15 +121,15 @@ fetch_key() {
     if [[ "$status" == "success" && -n "$key" ]]; then
         # Validasi format FREE_
         if [[ "$key" =~ ^FREE_[a-zA-Z0-9]{10,}$ ]]; then
-            log KEY "Key: $key"
+            log KEY "Key: $key" >&2
             echo "$key"
             return 0
         else
-            log ERROR "Format key tidak valid: $key"
+            log ERROR "Format key tidak valid: $key" >&2
             return 1
         fi
     else
-        log ERROR "API error: $response"
+        log ERROR "API error: $response" >&2
         return 1
     fi
 }
@@ -169,11 +169,16 @@ handle_link() {
 
     # Fetch key dari API
     local key
-    key=$(fetch_key "$link")
-    if [[ -z "$key" ]]; then
+    key=$(fetch_key "$link" 2>/dev/null)
+    # Ambil baris terakhir saja (baris echo key)
+    key=$(echo "$key" | tail -1 | tr -d '[:space:]')
+
+    if [[ -z "$key" ]] || [[ ! "$key" =~ ^FREE_ ]]; then
         log ERROR "Gagal dapat key, skip"
         return 1
     fi
+
+    log KEY "Menggunakan key: $key"
 
     # Tulis ke semua path license
     write_all_licenses "$key"
