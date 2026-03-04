@@ -1,44 +1,51 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ================================================================
 # RootBot - Termux Script
-# Usage: bash bot.sh --device "Nama Device"
-#        atau: tmux new-session -d -s bot "bash bot.sh --device 'HP Kantor'"
+# Usage  : bash bot.sh --device "Nama Device"
+# Tmux   : tmux new-session -d -s bot "bash bot.sh --device 'HP Kantor'"
 # ================================================================
 
-# ── KONFIGURASI - EDIT BAGIAN INI ────────────────────────────────
+# ════════════════════════════════════════════════════════════════
+# KONFIGURASI - EDIT BAGIAN INI
+# ════════════════════════════════════════════════════════════════
 
 API_URL="https://montanaweb.xyz/keyproxy/api/v1/241ba761-e303-4805-a299-bbc5cd5f9b4d/submit"
-LAST_KEY_URL="https://montanaweb.xyz/keyproxy/api/v1/241ba761-e303-4805-a299-bbc5cd5f9b4d/last-key"
 KEEPALIVE_URL="https://montanaweb.xyz/keyproxy/dashboard.php"
-KEEPALIVE_INTERVAL=300   # ping keepalive tiap 5 menit
+KEEPALIVE_INTERVAL=300      # ping keepalive tiap 5 menit (detik)
 
-# Target package yang di-kill setelah dapat key
+# Package yang di-kill setelah dapat key (tambah/hapus sesuai kebutuhan)
 TARGET_PACKAGES=(
-    "com.target.package1"    # ganti dengan package name app target
-    "com.target.package2"    # tambah/hapus sesuai kebutuhan
+    "com.roblox.clienu"
+    "com.roblox.clienv"
+    "com.roblox.clienw"
+    "com.roblox.clienx"
+    "com.roblox.clieny"
 )
 
 # Lokasi file license yang ditulis setelah dapat key
-# Format: "package_index:path" - index sesuai TARGET_PACKAGES di atas
-LICENSE_TARGETS=(
-    "0:/data/data/com.target.package1/files/license.key"
-    "0:/data/data/com.target.package1/cache/auth.dat"
-    "1:/data/data/com.target.package2/files/license.key"
+# Semua path ini akan diisi key yang sama
+LICENSE_PATHS=(
+    "/storage/emulated/0/Delta/Internals/Cache/license"
+    "/storage/emulated/0/Android/data/com.roblox.clienu/files/gloop/external/Internals/Cache/license"
+    "/storage/emulated/0/Android/data/com.roblox.clienv/files/gloop/external/Internals/Cache/license"
+    "/storage/emulated/0/Android/data/com.roblox.clienw/files/gloop/external/Internals/Cache/license"
+    "/storage/emulated/0/Android/data/com.roblox.clienx/files/gloop/external/Internals/Cache/license"
+    "/storage/emulated/0/Android/data/com.roblox.clieny/files/gloop/external/Internals/Cache/license"   
 )
 
-# ── JANGAN EDIT DI BAWAH INI ─────────────────────────────────────
+# ════════════════════════════════════════════════════════════════
+# JANGAN EDIT DI BAWAH INI
+# ════════════════════════════════════════════════════════════════
 
-DEVICE_NAME=""
+POLL_INTERVAL=2             # cek clipboard tiap 2 detik (normal)
+LONG_POLL_INTERVAL=900      # 15 menit setelah dapat popup
+CURRENT_INTERVAL=$POLL_INTERVAL
 LAST_CLIP=""
 LAST_POPUP_TIME=0
-POLL_INTERVAL=2          # cek clipboard tiap 2 detik normal
-LONG_POLL_INTERVAL=900   # 15 menit setelah dapat popup (900 detik)
-NO_POPUP_COUNT=0
-NO_POPUP_THRESHOLD=1     # setelah 1x dapat popup, naikkan interval
-CURRENT_INTERVAL=$POLL_INTERVAL
-LAST_KEY=""
+KEEPALIVE_PID=""
+DEVICE_NAME=""
 
-# ── Colors ────────────────────────────────────────────────────────
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -50,39 +57,37 @@ NC='\033[0m'
 # ── Parse arguments ───────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --device|-d)
-            DEVICE_NAME="$2"
-            shift 2
-            ;;
-        --device=*)
-            DEVICE_NAME="${1#*=}"
-            shift
-            ;;
-        *)
-            shift
-            ;;
+        --device|-d)   DEVICE_NAME="$2"; shift 2 ;;
+        --device=*)    DEVICE_NAME="${1#*=}"; shift ;;
+        *)             shift ;;
     esac
 done
 
 if [[ -z "$DEVICE_NAME" ]]; then
-    echo -e "${RED}ERROR: Device name wajib diisi!${NC}"
-    echo -e "Usage: bash bot.sh --device \"Nama Device\""
-    echo -e "       tmux new-session -d -s bot \"bash bot.sh --device 'HP Kantor'\""
+    echo -e "${RED}ERROR: Device name wajib!${NC}"
+    echo ""
+    echo "Usage:"
+    echo "  bash bot.sh --device \"Nama Device\""
+    echo "  tmux new-session -d -s bot \"bash bot.sh --device 'HP Kantor'\""
     exit 1
 fi
 
 # ── Logging ───────────────────────────────────────────────────────
 log() {
-    local level=$1
-    local msg=$2
+    local level=$1 msg=$2
     local time=$(date '+%H:%M:%S')
     case $level in
-        INFO)  echo -e "${DIM}[$time]${NC} ${WHITE}$msg${NC}" ;;
-        OK)    echo -e "${DIM}[$time]${NC} ${GREEN}OK${NC} $msg" ;;
-        WARN)  echo -e "${DIM}[$time]${NC} ${YELLOW}WARN${NC} $msg" ;;
-        ERROR) echo -e "${DIM}[$time]${NC} ${RED}ERROR${NC} $msg" ;;
-        KEY)   echo -e "${DIM}[$time]${NC} ${CYAN}KEY${NC} $msg" ;;
+        INFO)  echo -e "${DIM}[$time]${NC} $msg" ;;
+        OK)    echo -e "${DIM}[$time]${NC} ${GREEN}[OK]${NC} $msg" ;;
+        WARN)  echo -e "${DIM}[$time]${NC} ${YELLOW}[WARN]${NC} $msg" ;;
+        ERROR) echo -e "${DIM}[$time]${NC} ${RED}[ERROR]${NC} $msg" ;;
+        KEY)   echo -e "${DIM}[$time]${NC} ${CYAN}[KEY]${NC} $msg" ;;
     esac
+}
+
+# ── Cek URL ───────────────────────────────────────────────────────
+is_url() {
+    [[ "$1" =~ ^https?:// ]]
 }
 
 # ── Get clipboard ─────────────────────────────────────────────────
@@ -90,131 +95,109 @@ get_clipboard() {
     termux-clipboard-get 2>/dev/null || echo ""
 }
 
-# ── Cek apakah string adalah URL ─────────────────────────────────
-is_url() {
-    [[ "$1" =~ ^https?:// ]]
-}
-
-# ── Hit API dapat key ─────────────────────────────────────────────
+# ── Hit API ───────────────────────────────────────────────────────
 fetch_key() {
     local link="$1"
     local response
 
+    log INFO "Menghubungi API... (bisa 40-60 detik)"
     response=$(curl -s -X POST "$API_URL" \
         -H "Content-Type: application/json" \
         -H "User-Agent: RootBot-Termux/1.0" \
-        --connect-timeout 10 \
-        --max-time 30 \
+        --connect-timeout 15 \
+        --max-time 90 \
         -d "{\"link\":\"$link\",\"device\":\"$DEVICE_NAME\",\"device_id\":\"${DEVICE_NAME}_termux\"}" \
         2>/dev/null)
 
     if [[ -z "$response" ]]; then
-        log ERROR "No response from API"
+        log ERROR "Tidak ada response dari API"
         return 1
     fi
 
-    # Parse key dari JSON response
-    local key
-    key=$(echo "$response" | grep -o '"key":"[^"]*"' | cut -d'"' -f4)
-    local status
+    local key status
+    key=$(echo "$response"    | grep -o '"key":"[^"]*"'    | cut -d'"' -f4)
     status=$(echo "$response" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
 
     if [[ "$status" == "success" && -n "$key" ]]; then
-        LAST_KEY="$key"
-        log KEY "Key didapat: $key"
+        log KEY "Key: $key"
+        echo "$key"
         return 0
     else
-        log ERROR "API gagal: $response"
+        log ERROR "API error: $response"
         return 1
     fi
 }
 
-# ── Tulis file license ────────────────────────────────────────────
-write_license() {
+# ── Tulis license ke semua path ───────────────────────────────────
+write_all_licenses() {
     local key="$1"
-    local written=0
+    log INFO "Menulis license ke ${#LICENSE_PATHS[@]} lokasi..."
 
-    for target in "${LICENSE_TARGETS[@]}"; do
-        local path="${target#*:}"
+    for path in "${LICENSE_PATHS[@]}"; do
         local dir
         dir=$(dirname "$path")
-
-        # Buat direktori kalau belum ada
-        su -c "mkdir -p '$dir' 2>/dev/null"
-
-        # Tulis key ke file license
-        if su -c "echo '$key' > '$path' && chmod 644 '$path'"; then
-            log OK "License ditulis: $path"
-            written=$((written + 1))
+        su -c "mkdir -p '$dir' && echo '$key' > '$path' && chmod 644 '$path'" 2>/dev/null
+        if [[ $? -eq 0 ]]; then
+            log OK "License -> $path"
         else
-            log WARN "Gagal tulis: $path"
+            log WARN "Gagal tulis -> $path"
         fi
     done
-
-    return $written
 }
 
-# ── Kill target packages ──────────────────────────────────────────
-kill_packages() {
+# ── Kill semua package ────────────────────────────────────────────
+kill_all_packages() {
+    log INFO "Kill ${#TARGET_PACKAGES[@]} package..."
+
     for pkg in "${TARGET_PACKAGES[@]}"; do
-        if su -c "am force-stop '$pkg' 2>/dev/null"; then
-            log OK "Kill: $pkg"
-        else
-            log WARN "Gagal kill: $pkg"
-        fi
-        sleep 0.5
+        su -c "am force-stop '$pkg'" 2>/dev/null
+        log OK "Kill -> $pkg"
+        sleep 0.3
     done
 }
 
-# ── Keepalive ping ────────────────────────────────────────────────
-keepalive() {
-    curl -s "$KEEPALIVE_URL" \
-        -H "User-Agent: RootBot-Keepalive/1.0" \
-        --connect-timeout 5 \
-        --max-time 10 \
-        -o /dev/null 2>/dev/null
-    log INFO "Keepalive ping sent"
+# ── Handle link baru ──────────────────────────────────────────────
+handle_link() {
+    local link="$1"
+    log INFO "Link: $link"
+
+    # Fetch key dari API
+    local key
+    key=$(fetch_key "$link")
+    if [[ -z "$key" ]]; then
+        log ERROR "Gagal dapat key, skip"
+        return 1
+    fi
+
+    # Tulis ke semua path license
+    write_all_licenses "$key"
+
+    # Kill semua package
+    sleep 1
+    kill_all_packages
+
+    # Set interval ke 15 menit
+    LAST_POPUP_TIME=$(date +%s)
+    CURRENT_INTERVAL=$LONG_POLL_INTERVAL
+    log OK "Selesai! Interval -> 15 menit"
+    log INFO "─────────────────────────────────"
 }
 
-# ── Background keepalive loop ─────────────────────────────────────
-start_keepalive_loop() {
+# ── Keepalive loop (background) ───────────────────────────────────
+keepalive_loop() {
     while true; do
         sleep $KEEPALIVE_INTERVAL
-        keepalive
-    done &
-    KEEPALIVE_PID=$!
-    log INFO "Keepalive loop started (PID: $KEEPALIVE_PID)"
+        curl -s "$KEEPALIVE_URL" \
+            -H "User-Agent: RootBot-Keepalive/1.0" \
+            --connect-timeout 5 --max-time 10 \
+            -o /dev/null 2>/dev/null
+        log INFO "Keepalive ping OK"
+    done
 }
 
-# ── Handle link baru dari clipboard ──────────────────────────────
-handle_new_link() {
-    local link="$1"
-    log INFO "Link baru: $link"
-
-    # Hit API
-    if fetch_key "$link"; then
-        # Tulis license ke semua target
-        write_license "$LAST_KEY"
-
-        # Kill semua package target
-        sleep 1
-        kill_packages
-
-        # Catat waktu dapat popup terakhir
-        LAST_POPUP_TIME=$(date +%s)
-        NO_POPUP_COUNT=$((NO_POPUP_COUNT + 1))
-
-        # Setelah dapat popup, naikkan interval jadi 15 menit
-        CURRENT_INTERVAL=$LONG_POLL_INTERVAL
-        log INFO "Interval dinaikkan ke ${LONG_POLL_INTERVAL}s (15 menit)"
-        log OK "Selesai! Menunggu ${LONG_POLL_INTERVAL}s sebelum cek lagi..."
-    else
-        log ERROR "Gagal dapat key, akan retry di loop berikutnya"
-    fi
-}
-
-# ── Cleanup on exit ───────────────────────────────────────────────
+# ── Cleanup ───────────────────────────────────────────────────────
 cleanup() {
+    echo ""
     log WARN "Bot dihentikan"
     [[ -n "$KEEPALIVE_PID" ]] && kill "$KEEPALIVE_PID" 2>/dev/null
     exit 0
@@ -223,28 +206,30 @@ trap cleanup SIGINT SIGTERM
 
 # ── Main ──────────────────────────────────────────────────────────
 main() {
-    echo ""
-    echo -e "${CYAN}╔════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║        RootBot Termux          ║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════╝${NC}"
-    echo ""
-    log INFO "Device  : $DEVICE_NAME"
-    log INFO "API     : $API_URL"
-    log INFO "Targets : ${#TARGET_PACKAGES[@]} package, ${#LICENSE_TARGETS[@]} lokasi"
+    clear
+    echo -e "${CYAN}"
+    echo "  ██████╗  ██████╗  ████████╗"
+    echo "  ██╔══██╗██╔═══██╗ ╚══██╔══╝"
+    echo "  ██████╔╝██║   ██║    ██║   "
+    echo "  ██╔══██╗██║   ██║    ██║   "
+    echo "  ██║  ██║╚██████╔╝    ██║   "
+    echo "  ╚═╝  ╚═╝ ╚═════╝     ╚═╝  "
+    echo -e "${NC}"
+    echo -e " Device  : ${WHITE}$DEVICE_NAME${NC}"
+    echo -e " Packages: ${WHITE}${#TARGET_PACKAGES[@]}${NC} target"
+    echo -e " Licenses: ${WHITE}${#LICENSE_PATHS[@]}${NC} lokasi"
+    echo -e " Interval: ${WHITE}${POLL_INTERVAL}s normal / ${LONG_POLL_INTERVAL}s setelah popup${NC}"
     echo ""
 
     # Cek dependencies
-    if ! command -v termux-clipboard-get &>/dev/null; then
-        log ERROR "termux-clipboard-get tidak ditemukan!"
-        log ERROR "Jalankan: pkg install termux-api"
-        exit 1
-    fi
-
-    if ! command -v curl &>/dev/null; then
-        log ERROR "curl tidak ditemukan!"
-        log ERROR "Jalankan: pkg install curl"
-        exit 1
-    fi
+    for dep in termux-clipboard-get curl; do
+        if ! command -v "$dep" &>/dev/null; then
+            log ERROR "$dep tidak ditemukan!"
+            [[ "$dep" == "termux-clipboard-get" ]] && log ERROR "Jalankan: pkg install termux-api"
+            [[ "$dep" == "curl" ]] && log ERROR "Jalankan: pkg install curl"
+            exit 1
+        fi
+    done
 
     # Cek root
     if ! su -c "echo ok" &>/dev/null; then
@@ -252,42 +237,52 @@ main() {
         exit 1
     fi
 
-    log OK "Semua dependency OK"
-    log INFO "Memulai clipboard listener..."
+    log OK "Dependencies OK"
+    log INFO "Mendengarkan clipboard..."
     echo ""
 
     # Init clipboard baseline
     LAST_CLIP=$(get_clipboard)
 
     # Start keepalive di background
-    start_keepalive_loop
+    keepalive_loop &
+    KEEPALIVE_PID=$!
 
     # Main loop
     while true; do
-        sleep $CURRENT_INTERVAL
+        sleep "$CURRENT_INTERVAL"
 
         local current_clip
         current_clip=$(get_clipboard)
 
-        # Skip kalau clipboard kosong atau sama
-        if [[ -z "$current_clip" || "$current_clip" == "$LAST_CLIP" ]]; then
+        # Skip kalau kosong atau sama
+        [[ -z "$current_clip" || "$current_clip" == "$LAST_CLIP" ]] && {
+            # Reset interval kalau sudah lewat 15 menit
+            local now elapsed
+            now=$(date +%s)
+            elapsed=$((now - LAST_POPUP_TIME))
+            if [[ $CURRENT_INTERVAL -eq $LONG_POLL_INTERVAL && $elapsed -gt $LONG_POLL_INTERVAL ]]; then
+                CURRENT_INTERVAL=$POLL_INTERVAL
+                log INFO "Interval reset ke normal (${POLL_INTERVAL}s)"
+            fi
             continue
-        fi
+        }
 
-        # Ada perubahan di clipboard
+        # Ada perubahan
         LAST_CLIP="$current_clip"
 
-        # Cek apakah isinya URL
+        # Proses kalau URL
         if is_url "$current_clip"; then
-            handle_new_link "$current_clip"
+            handle_link "$current_clip"
         fi
 
-        # Reset interval ke normal kalau sudah lama tidak ada popup
-        local now=$(date +%s)
-        local elapsed=$((now - LAST_POPUP_TIME))
+        # Cek reset interval
+        local now elapsed
+        now=$(date +%s)
+        elapsed=$((now - LAST_POPUP_TIME))
         if [[ $CURRENT_INTERVAL -eq $LONG_POLL_INTERVAL && $elapsed -gt $LONG_POLL_INTERVAL ]]; then
             CURRENT_INTERVAL=$POLL_INTERVAL
-            log INFO "Interval kembali normal (${POLL_INTERVAL}s)"
+            log INFO "Interval reset ke normal (${POLL_INTERVAL}s)"
         fi
     done
 }
