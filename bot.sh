@@ -114,13 +114,20 @@ fetch_key() {
     fi
 
     local key status
-    key=$(echo "$response"    | grep -o '"key":"[^"]*"'    | cut -d'"' -f4)
-    status=$(echo "$response" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+    # Parse JSON - handle spasi setelah colon (pakai sed)
+    key=$(echo "$response"    | sed 's/ //g' | grep -o '"key":"[^"]*"'    | cut -d'"' -f4)
+    status=$(echo "$response" | sed 's/ //g' | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
 
     if [[ "$status" == "success" && -n "$key" ]]; then
-        log KEY "Key: $key"
-        echo "$key"
-        return 0
+        # Validasi format FREE_
+        if [[ "$key" =~ ^FREE_[a-zA-Z0-9]{10,}$ ]]; then
+            log KEY "Key: $key"
+            echo "$key"
+            return 0
+        else
+            log ERROR "Format key tidak valid: $key"
+            return 1
+        fi
     else
         log ERROR "API error: $response"
         return 1
@@ -135,7 +142,7 @@ write_all_licenses() {
     for path in "${LICENSE_PATHS[@]}"; do
         local dir
         dir=$(dirname "$path")
-        su -c "mkdir -p '$dir' && echo '$key' > '$path' && chmod 644 '$path'" 2>/dev/null
+        su -c "mkdir -p '$dir' && printf '%s' '$key' > '$path' && chmod 644 '$path'" 2>/dev/null
         if [[ $? -eq 0 ]]; then
             log OK "License -> $path"
         else
