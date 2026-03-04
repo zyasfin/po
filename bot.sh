@@ -5,11 +5,15 @@
 # Tmux   : tmux new-session -d -s bot "bash bot.sh --device 'HP Kantor'"
 # ================================================================
 
+# ════════════════════════════════════════════════════════════════
+# KONFIGURASI - EDIT BAGIAN INI
+# ════════════════════════════════════════════════════════════════
+
 API_URL="https://montanaweb.xyz/keyproxy/api/v1/241ba761-e303-4805-a299-bbc5cd5f9b4d/submit"
 KEEPALIVE_URL="https://montanaweb.xyz/keyproxy/dashboard.php"
-KEEPALIVE_INTERVAL=300
+KEEPALIVE_INTERVAL=300       # ping keepalive tiap 5 menit
 
-# Package yang di-kill setelah dapat key (tambah/hapus sesuai kebutuhan)
+# Package yang di-kill setelah dapat key
 TARGET_PACKAGES=(
     "com.roblox.clienu"
     "com.roblox.clienv"
@@ -29,33 +33,36 @@ LICENSE_PATHS=(
     "/storage/emulated/0/Android/data/com.roblox.clieny/files/gloop/external/Internals/Cache/license"   
 )
 
-SCREENSHOT_FILE="/sdcard/rb_screen.png"
-COORDS_FILE="/sdcard/rb_coords.txt"
-BROWSER_FILE="/sdcard/rb_browser.txt"
-DONE_FILE="/sdcard/rb_done.txt"
+# ════════════════════════════════════════════════════════════════
+# JANGAN EDIT DI BAWAH INI
+# ════════════════════════════════════════════════════════════════
 
-# ── Timing ────────────────────────────────────────────────────────
-CLIP_POLL=2
-OCR_INTERVAL_WARMUP=15     # 15 detik - 30 menit pertama sejak start
-OCR_INTERVAL_NORMAL=300    # 5 menit  - setelah warmup / setelah 23 jam
-OCR_INTERVAL_LONG=1800     # 30 menit - setelah dapat key
-WARMUP_DURATION=1800       # 30 menit warmup dalam detik
-RESET_COOLDOWN=82800       # 23 jam dalam detik
+# File komunikasi dengan APK
+SCREENSHOT_FILE="/sdcard/rb_screen.png"   # APK tulis
+COORDS_FILE="/sdcard/rb_coords.txt"       # bot.sh tulis → APK baca
+BROWSER_FILE="/sdcard/rb_browser.txt"     # APK tulis "check" → bot.sh tulis "yes/no"
+DONE_FILE="/sdcard/rb_done.txt"           # bot.sh tulis key setelah berhasil
 
-OCR_INTERVAL=$OCR_INTERVAL_WARMUP
-BOT_START_TIME=$(date +%s)
+# Timing
+CLIP_POLL=2            # cek clipboard tiap 2 detik
+OCR_INTERVAL_NORMAL=5  # OCR tiap 5 detik saat normal
+OCR_INTERVAL_LONG=1800 # OCR tiap 30 menit setelah key berhasil
+OCR_INTERVAL=5
 LAST_OCR=0
 LAST_SUCCESS=0
 LAST_CLIP=""
 DEVICE_NAME=""
 KEEPALIVE_PID=""
 
+# Tesseract
 TESS_BIN="/data/data/com.termux/files/usr/bin/tesseract"
 TESS_ENV="HOME=/data/data/com.termux/files/home PATH=/data/data/com.termux/files/usr/bin:/system/bin LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib TESSDATA_PREFIX=/data/data/com.termux/files/usr/share"
 
+# Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; WHITE='\033[1;37m'; DIM='\033[2m'; NC='\033[0m'
 
+# ── Parse args ────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case $1 in
         --device|-d) DEVICE_NAME="$2"; shift 2 ;;
@@ -70,6 +77,7 @@ if [[ -z "$DEVICE_NAME" ]]; then
     exit 1
 fi
 
+# ── Logging ───────────────────────────────────────────────────────
 log() {
     local level=$1 msg=$2
     local time=$(date '+%H:%M:%S')
@@ -83,80 +91,104 @@ log() {
     esac
 }
 
+# ── OCR scan - jalankan tesseract ─────────────────────────────────
 run_ocr() {
     [[ ! -f "$SCREENSHOT_FILE" ]] && return 1
     env $TESS_ENV "$TESS_BIN" "$SCREENSHOT_FILE" stdout tsv 2>/dev/null
 }
 
+# ── Parse TSV cari popup (pakai awk) ─────────────────────────────
 parse_popups() {
     local tsv="$1"
-    local continue_words=()
-    local receive_words=()
-    local enter_words=()
+    [[ -z "$tsv" ]] && return
 
-    while IFS=$'\t' read -r level page block par line word left top width height conf text; do
-        [[ "$level" != "5" ]] && continue
-        [[ -z "$text" ]] && continue
-        local cx=$((left + width/2))
-        local cy=$((top + height/2))
-        case "$text" in
-            [Cc]ontinue) continue_words+=("$cx,$cy,$left,$top,$width,$height") ;;
-            [Rr]eceive)  receive_words+=("$cx,$cy,$left,$top") ;;
-            [Ee]nter)    enter_words+=("$cx,$cy,$top") ;;
-        esac
-    done <<< "$tsv"
+    # Pakai awk untuk parse TSV - lebih reliable dari bash IFS
+    local result
+    result=$(echo "$tsv" | awk -F'	' '
+    BEGIN {
+        cont_n = 0; recv_n = 0; enter_n = 0
+    }
+    {
+        if ($1 != "5") next
+        if (NF < 12) next
+        text = $12
+        left = $7+0; top = $8+0; w = $9+0; h = $10+0
+        cx = left + int(w/2)
+        cy = top + int(h/2)
 
-    for cont in "${continue_words[@]}"; do
-        local cont_cx=$(echo $cont | cut -d, -f1)
-        local cont_cy=$(echo $cont | cut -d, -f2)
-        local cont_top=$(echo $cont | cut -d, -f4)
+        tl = tolower(text)
+        if (tl ~ /continue/) {
+            cont_cx[cont_n]=cx; cont_cy[cont_n]=cy; cont_top[cont_n]=top; cont_n++
+        }
+        if (tl ~ /receive/) {
+            recv_cx[recv_n]=cx; recv_cy[recv_n]=cy; recv_n++
+        }
+        if (tl ~ /enter/) {
+            enter_cx[enter_n]=cx; enter_top[enter_n]=top; enter_n++
+        }
+    }
+    END {
+        for (i=0; i<cont_n; i++) {
+            cx = cont_cx[i]; cy = cont_cy[i]; ctop = cont_top[i]
 
-        local recv_cx="" recv_cy=""
-        for recv in "${receive_words[@]}"; do
-            local rx=$(echo $recv | cut -d, -f1)
-            local ry=$(echo $recv | cut -d, -f2)
-            local dx=$((rx - cont_cx)); [[ $dx -lt 0 ]] && dx=$((-dx))
-            if [[ $dx -lt 150 && $ry -gt $cont_cy ]]; then
-                recv_cx=$rx; recv_cy=$ry; break
-            fi
-        done
+            # Cari Receive terdekat di bawah Continue
+            best_rx = -1; best_ry = -1
+            for (j=0; j<recv_n; j++) {
+                dx = recv_cx[j] - cx; if (dx<0) dx=-dx
+                if (dx < 150 && (recv_cy[j] > cy || cy - recv_cy[j] < 200)) {
+                    best_rx = recv_cx[j]; best_ry = recv_cy[j]; break
+                }
+            }
+            if (best_rx < 0) continue
 
-        [[ -z "$recv_cx" ]] && continue
+            # Cari Enter di atas Continue
+            enter_y = ctop - 50
+            for (j=0; j<enter_n; j++) {
+                dx = enter_cx[j] - cx; if (dx<0) dx=-dx
+                if (dx < 150 && enter_top[j] < ctop) {
+                    enter_y = enter_top[j]; break
+                }
+            }
 
-        local enter_top=$((cont_top - 50))
-        for ent in "${enter_words[@]}"; do
-            local ex=$(echo $ent | cut -d, -f1)
-            local et=$(echo $ent | cut -d, -f3)
-            local dx=$((ex - cont_cx)); [[ $dx -lt 0 ]] && dx=$((-dx))
-            if [[ $dx -lt 150 && $et -lt $cont_top ]]; then
-                enter_top=$et; break
-            fi
-        done
+            field_x = cx
+            field_y = int((enter_y + ctop) / 2)
 
-        local field_x=$cont_cx
-        local field_y=$(( (enter_top + cont_top) / 2 ))
+            # Region
+            region = 5
+            if (cx < 450 && cy < 400) region = 1
+            else if (cx < 950 && cy < 400) region = 2
+            else if (cx >= 950 && cy < 400) region = 3
+            else if (cx < 550 && cy >= 400) region = 4
 
-        local region=5
-        if   [[ $cont_cx -lt 450  && $cont_cy -lt 400 ]]; then region=1
-        elif [[ $cont_cx -lt 950  && $cont_cy -lt 400 ]]; then region=2
-        elif [[ $cont_cx -ge 950  && $cont_cy -lt 400 ]]; then region=3
-        elif [[ $cont_cx -lt 550  && $cont_cy -ge 400 ]]; then region=4
-        fi
+            print region"|"best_rx"|"best_ry"|"cx"|"cy"|"field_x"|"field_y
+        }
+    }
+    ')
 
-        cat > "$COORDS_FILE" << EOF
+    if [[ -z "$result" ]]; then
+        log OCR "Tidak ada popup terdeteksi"
+        return
+    fi
+
+    # Tulis coords file untuk tiap popup (APK baca satu per satu)
+    while IFS="|" read -r region recv_x recv_y cont_x cont_y field_x field_y; do
+        cat > "$COORDS_FILE" << COORDEOF
 appIndex=$region
-receiveX=$recv_cx
-receiveY=$recv_cy
-continueX=$cont_cx
-continueY=$cont_cy
+receiveX=$recv_x
+receiveY=$recv_y
+continueX=$cont_x
+continueY=$cont_y
 fieldX=$field_x
 fieldY=$field_y
-EOF
-        log OCR "Popup App$region: Continue($cont_cx,$cont_cy) Receive($recv_cx,$recv_cy) Field($field_x,$field_y)"
-    done
+COORDEOF
+        log OCR "Popup App$region: Receive($recv_x,$recv_y) Continue($cont_x,$cont_y) Field($field_x,$field_y)"
+    done <<< "$result"
 }
 
+# ── Cek browser popup ─────────────────────────────────────────────
 check_browser_popup() {
+    # APK tulis "check" ke rb_browser.txt
+    # Kita OCR screenshot dan balas "yes" atau "no"
     [[ ! -f "$BROWSER_FILE" ]] && return
     local content
     content=$(cat "$BROWSER_FILE" 2>/dev/null)
@@ -175,36 +207,15 @@ check_browser_popup() {
     fi
 }
 
+# ── Cek apakah perlu OCR ──────────────────────────────────────────
 should_run_ocr() {
     local now=$(date +%s)
     local elapsed=$((now - LAST_OCR))
+    # Scan pertama langsung, berikutnya tiap 30 menit
     [[ $LAST_OCR -eq 0 || $elapsed -ge $OCR_INTERVAL ]]
 }
 
-# ── Update interval berdasarkan state ────────────────────────────
-update_interval() {
-    local now=$(date +%s)
-
-    # Cek warmup selesai → naik ke 5 menit
-    if [[ $OCR_INTERVAL -eq $OCR_INTERVAL_WARMUP ]]; then
-        local elapsed_start=$((now - BOT_START_TIME))
-        if [[ $elapsed_start -ge $WARMUP_DURATION ]]; then
-            OCR_INTERVAL=$OCR_INTERVAL_NORMAL
-            log INFO "Warmup selesai - OCR interval -> 5 menit"
-        fi
-    fi
-
-    # Cek 23 jam tanpa key → balik ke 5 menit
-    if [[ $OCR_INTERVAL -eq $OCR_INTERVAL_LONG && $LAST_SUCCESS -gt 0 ]]; then
-        local elapsed_key=$((now - LAST_SUCCESS))
-        if [[ $elapsed_key -ge $RESET_COOLDOWN ]]; then
-            OCR_INTERVAL=$OCR_INTERVAL_NORMAL
-            LAST_SUCCESS=0
-            log INFO "23 jam tanpa key baru - OCR reset ke 5 menit"
-        fi
-    fi
-}
-
+# ── Hit API ───────────────────────────────────────────────────────
 fetch_key() {
     local link="$1"
     log INFO "Menghubungi API... (bisa 40-60 detik)" >&2
@@ -237,6 +248,7 @@ fetch_key() {
     fi
 }
 
+# ── Tulis license ke semua path ───────────────────────────────────
 write_all_licenses() {
     local key="$1"
     log INFO "Menulis license ke ${#LICENSE_PATHS[@]} lokasi..."
@@ -247,6 +259,7 @@ write_all_licenses() {
     done
 }
 
+# ── Kill semua package ────────────────────────────────────────────
 kill_all_packages() {
     log INFO "Kill ${#TARGET_PACKAGES[@]} package..."
     for pkg in "${TARGET_PACKAGES[@]}"; do
@@ -256,6 +269,7 @@ kill_all_packages() {
     done
 }
 
+# ── Handle link baru dari clipboard ──────────────────────────────
 handle_link() {
     local link="$1"
     log INFO "Link: $link"
@@ -270,20 +284,25 @@ handle_link() {
     fi
 
     log KEY "Menggunakan key: $key"
+
+    # Tulis license
     write_all_licenses "$key"
+
+    # Kill packages
     sleep 1
     kill_all_packages
 
+    # Tulis done file biar APK tahu key berhasil
     echo "$key" > "$DONE_FILE"
     log OK "Done file ditulis, APK dikasih tau"
-
-    # Dapat key → 30 menit, reset timer 23 jam
+    # Naikkan OCR interval ke 30 menit
     LAST_SUCCESS=$(date +%s)
     OCR_INTERVAL=$OCR_INTERVAL_LONG
-    log INFO "OCR interval -> 30 menit, 23 jam timer reset"
+    log INFO "OCR interval -> 30 menit"
     log INFO "─────────────────────────────────"
 }
 
+# ── Keepalive ─────────────────────────────────────────────────────
 keepalive_loop() {
     while true; do
         sleep $KEEPALIVE_INTERVAL
@@ -293,6 +312,7 @@ keepalive_loop() {
     done
 }
 
+# ── Cleanup ───────────────────────────────────────────────────────
 cleanup() {
     echo ""
     log WARN "Bot dihentikan"
@@ -302,6 +322,7 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
+# ── Main ──────────────────────────────────────────────────────────
 main() {
     clear
     echo -e "${CYAN}"
@@ -314,9 +335,10 @@ main() {
     echo -e "${NC}"
     echo -e " Device  : ${WHITE}$DEVICE_NAME${NC}"
     echo -e " Packages: ${WHITE}${#TARGET_PACKAGES[@]}${NC} target"
-    echo -e " OCR scan: ${WHITE}warmup=15s (30mnt) → normal=5mnt → key=30mnt → 23jam → 5mnt${NC}"
+    echo -e " OCR scan: ${WHITE}normal=5s / setelah key=30menit${NC}"
     echo ""
 
+    # Cek deps
     for dep in termux-clipboard-get curl "$TESS_BIN"; do
         if [[ ! -x "$dep" ]] && ! command -v "$dep" &>/dev/null; then
             log ERROR "$dep tidak ditemukan!"
@@ -330,22 +352,24 @@ main() {
     fi
 
     log OK "Dependencies OK"
+
+    # Bersihkan file lama
     rm -f "$COORDS_FILE" "$BROWSER_FILE" "$DONE_FILE"
+
+    # Init clipboard
     LAST_CLIP=$(termux-clipboard-get 2>/dev/null)
 
+    # Start keepalive background
     keepalive_loop &
     KEEPALIVE_PID=$!
 
-    log INFO "Warmup 30 menit - OCR tiap 15 detik..."
+    log INFO "Listening clipboard + monitor screenshot..."
     echo ""
 
     while true; do
         sleep $CLIP_POLL
 
-        # Update interval state
-        update_interval
-
-        # Cek browser popup
+        # ── 1. Cek browser popup (APK minta konfirmasi) ───────────
         if [[ -f "$BROWSER_FILE" ]]; then
             content=$(cat "$BROWSER_FILE" 2>/dev/null)
             if [[ "$content" == "check" ]]; then
@@ -353,20 +377,34 @@ main() {
             fi
         fi
 
-        # OCR scan
+        # ── 2. OCR scan (interval menyesuaikan) ──────────────────
+        if [[ $OCR_INTERVAL -eq $OCR_INTERVAL_LONG && $LAST_SUCCESS -gt 0 ]]; then
+            now_s=$(date +%s)
+            elapsed_s=$((now_s - LAST_SUCCESS))
+            if [[ $elapsed_s -ge $OCR_INTERVAL_LONG ]]; then
+                OCR_INTERVAL=$OCR_INTERVAL_NORMAL
+                log OCR "OCR interval reset ke normal"
+            fi
+        fi
+
         if should_run_ocr && [[ -f "$SCREENSHOT_FILE" ]]; then
-            log OCR "Scan tesseract... (interval: ${OCR_INTERVAL}s)"
+            log OCR "Scan tesseract..."
             tsv=$(run_ocr)
             if [[ -n "$tsv" ]]; then
                 parse_popups "$tsv"
             fi
             LAST_OCR=$(date +%s)
+            if [[ $OCR_INTERVAL -eq $OCR_INTERVAL_LONG ]]; then
+                log OCR "Scan selesai, berikutnya 30 menit lagi"
+            fi
         fi
 
-        # Cek clipboard
+        # ── 3. Cek clipboard ──────────────────────────────────────
         local current_clip
         current_clip=$(termux-clipboard-get 2>/dev/null)
+
         [[ -z "$current_clip" || "$current_clip" == "$LAST_CLIP" ]] && continue
+
         LAST_CLIP="$current_clip"
 
         if [[ "$current_clip" =~ ^https?:// ]]; then
