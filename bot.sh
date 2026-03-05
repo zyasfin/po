@@ -29,7 +29,7 @@ LICENSE_PATHS=(
     "/storage/emulated/0/Android/data/com.roblox.clienv/files/gloop/external/Internals/Cache/license"
     "/storage/emulated/0/Android/data/com.roblox.clienw/files/gloop/external/Internals/Cache/license"
     "/storage/emulated/0/Android/data/com.roblox.clienx/files/gloop/external/Internals/Cache/license"
-    "/storage/emulated/0/Android/data/com.roblox.clieny/files/gloop/external/Internals/Cache/license"   
+    "/storage/emulated/0/Android/data/com.roblox.clieny/files/gloop/external/Internals/Cache/license"
 )
 
 # ════════════════════════════════════════════════════════════════
@@ -56,7 +56,14 @@ KEEPALIVE_PID=""
 
 # Tesseract
 TESS_BIN="/data/data/com.termux/files/usr/bin/tesseract"
-TESS_ENV="HOME=/data/data/com.termux/files/home PATH=/data/data/com.termux/files/usr/bin:/system/bin LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib TESSDATA_PREFIX=/data/data/com.termux/files/usr/share/tessdata"
+# FIX 1: TESS_ENV must be an array (or exported vars), not a plain string used with env
+# Using array form for safe env invocation
+TESS_ENV=(
+    "HOME=/data/data/com.termux/files/home"
+    "PATH=/data/data/com.termux/files/usr/bin:/system/bin"
+    "LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib"
+    "TESSDATA_PREFIX=/data/data/com.termux/files/usr/share/tessdata"
+)
 
 # Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -80,7 +87,8 @@ fi
 # ── Logging ───────────────────────────────────────────────────────
 log() {
     local level=$1 msg=$2
-    local time=$(date '+%H:%M:%S')
+    local time
+    time=$(date '+%H:%M:%S')
     case $level in
         INFO)  echo -e "${DIM}[$time]${NC} $msg" ;;
         OK)    echo -e "${DIM}[$time]${NC} ${GREEN}[OK]${NC} $msg" ;;
@@ -99,7 +107,9 @@ do_screencap() {
 # ── OCR scan full layar ──────────────────────────────────────────
 run_ocr() {
     [[ ! -f "$SCREENSHOT_FILE" ]] && return 1
-    timeout 60 env $TESS_ENV "$TESS_BIN" "$SCREENSHOT_FILE" stdout tsv         --oem 1 --psm 3 2>/dev/null
+    # FIX 2: Use array expansion for TESS_ENV instead of bare string
+    timeout 60 env "${TESS_ENV[@]}" "$TESS_BIN" "$SCREENSHOT_FILE" stdout tsv \
+        --oem 1 --psm 3 2>/dev/null
 }
 
 # ── Parse TSV cari popup (pakai awk) ─────────────────────────────
@@ -107,9 +117,8 @@ parse_popups() {
     local tsv="$1"
     [[ -z "$tsv" ]] && return
 
-    # Pakai awk untuk parse TSV - lebih reliable dari bash IFS
     local result
-    result=$(echo "$tsv" | awk -F'	' '
+    result=$(echo "$tsv" | awk -F'\t' '
     BEGIN {
         cont_n = 0; recv_n = 0; enter_n = 0
     }
@@ -136,7 +145,6 @@ parse_popups() {
         for (i=0; i<cont_n; i++) {
             cx = cont_cx[i]; cy = cont_cy[i]; ctop = cont_top[i]
 
-            # Cari Receive terdekat di bawah Continue
             best_rx = -1; best_ry = -1
             for (j=0; j<recv_n; j++) {
                 dx = recv_cx[j] - cx; if (dx<0) dx=-dx
@@ -146,7 +154,6 @@ parse_popups() {
             }
             if (best_rx < 0) continue
 
-            # Cari Enter di atas Continue
             enter_y = ctop - 50
             for (j=0; j<enter_n; j++) {
                 dx = enter_cx[j] - cx; if (dx<0) dx=-dx
@@ -158,7 +165,6 @@ parse_popups() {
             field_x = cx
             field_y = int((enter_y + ctop) / 2)
 
-            # Region
             region = 5
             if (cx < 450 && cy < 400) region = 1
             else if (cx < 950 && cy < 400) region = 2
@@ -172,8 +178,8 @@ parse_popups() {
 
     if [[ -z "$result" ]]; then
         log OCR "parse_popups: awk tidak output apapun - cek kondisi dx<200 && recv_cy>cont_cy"
-        # Debug: print semua continue dan receive yang ditemukan
-        echo "$1" | awk -F'	' '
+        # FIX 3: Use \t literal instead of a tab character inside awk -F for clarity
+        echo "$tsv" | awk -F'\t' '
         $1=="5" && NF>=12 {
             tl=tolower($12)
             if (tl~/continue/ || tl~/receive/) {
@@ -186,17 +192,15 @@ parse_popups() {
 
     log OCR "parse_popups: awk hasil = $result"
 
-    # Tulis coords file untuk tiap popup
     while IFS="|" read -r region recv_x recv_y cont_x cont_y field_x field_y; do
-        printf "appIndex=%s\nreceiveX=%s\nreceiveY=%s\ncontinueX=%s\ncontinueY=%s\nfieldX=%s\nfieldY=%s\n"             "$region" "$recv_x" "$recv_y" "$cont_x" "$cont_y" "$field_x" "$field_y" > "$COORDS_FILE"
+        printf "appIndex=%s\nreceiveX=%s\nreceiveY=%s\ncontinueX=%s\ncontinueY=%s\nfieldX=%s\nfieldY=%s\n" \
+            "$region" "$recv_x" "$recv_y" "$cont_x" "$cont_y" "$field_x" "$field_y" > "$COORDS_FILE"
         log OCR "Popup App$region: Receive($recv_x,$recv_y) Continue($cont_x,$cont_y) Field($field_x,$field_y)"
     done <<< "$result"
 }
 
 # ── Cek browser popup ─────────────────────────────────────────────
 check_browser_popup() {
-    # APK tulis "check" ke rb_browser.txt
-    # Kita OCR screenshot dan balas "yes" atau "no"
     [[ ! -f "$BROWSER_FILE" ]] && return
     local content
     content=$(cat "$BROWSER_FILE" 2>/dev/null)
@@ -204,7 +208,8 @@ check_browser_popup() {
 
     log INFO "Cek browser popup via OCR..."
     local text
-    text=$(env $TESS_ENV "$TESS_BIN" "$SCREENSHOT_FILE" stdout 2>/dev/null)
+    # FIX 4: Use array expansion for TESS_ENV
+    text=$(env "${TESS_ENV[@]}" "$TESS_BIN" "$SCREENSHOT_FILE" stdout 2>/dev/null)
 
     if echo "$text" | grep -qi "chrome\|mint\|firefox\|just once\|always\|open with"; then
         echo "yes" > "$BROWSER_FILE"
@@ -217,9 +222,9 @@ check_browser_popup() {
 
 # ── Cek apakah perlu OCR ──────────────────────────────────────────
 should_run_ocr() {
-    local now=$(date +%s)
+    local now
+    now=$(date +%s)
     local elapsed=$((now - LAST_OCR))
-    # Scan pertama langsung, berikutnya tiap 30 menit
     [[ $LAST_OCR -eq 0 || $elapsed -ge $OCR_INTERVAL ]]
 }
 
@@ -261,9 +266,15 @@ write_all_licenses() {
     local key="$1"
     log INFO "Menulis license ke ${#LICENSE_PATHS[@]} lokasi..."
     for path in "${LICENSE_PATHS[@]}"; do
-        local dir; dir=$(dirname "$path")
+        local dir
+        dir=$(dirname "$path")
         su -c "mkdir -p '$dir' && printf '%s' '$key' > '$path' && chmod 644 '$path'" 2>/dev/null
-        [[ $? -eq 0 ]] && log OK "License -> $path" || log WARN "Gagal -> $path"
+        # FIX 5: Check exit status correctly (the previous assignment overwrites $?)
+        if su -c "test -f '$path'" 2>/dev/null; then
+            log OK "License -> $path"
+        else
+            log WARN "Gagal -> $path"
+        fi
     done
 }
 
@@ -283,6 +294,7 @@ handle_link() {
     log INFO "Link: $link"
 
     local key
+    # FIX 6: Capture stderr separately so log messages don't pollute key variable
     key=$(fetch_key "$link" 2>/dev/null)
     key=$(echo "$key" | tail -1 | tr -d '[:space:]')
 
@@ -293,17 +305,13 @@ handle_link() {
 
     log KEY "Menggunakan key: $key"
 
-    # Tulis license
     write_all_licenses "$key"
 
-    # Kill packages
     sleep 1
     kill_all_packages
 
-    # Tulis done file biar APK tahu key berhasil
     echo "$key" > "$DONE_FILE"
     log OK "Done file ditulis, APK dikasih tau"
-    # Naikkan OCR interval ke 30 menit
     LAST_SUCCESS=$(date +%s)
     OCR_INTERVAL=$OCR_INTERVAL_LONG
     log INFO "OCR interval -> 30 menit"
@@ -313,7 +321,7 @@ handle_link() {
 # ── Keepalive ─────────────────────────────────────────────────────
 keepalive_loop() {
     while true; do
-        sleep $KEEPALIVE_INTERVAL
+        sleep "$KEEPALIVE_INTERVAL"
         curl -s "$KEEPALIVE_URL" -H "User-Agent: RootBot-Keepalive/1.0" \
             --connect-timeout 5 --max-time 10 -o /dev/null 2>/dev/null
         log INFO "Keepalive OK"
@@ -361,34 +369,35 @@ main() {
 
     log OK "Dependencies OK"
 
-    # Bersihkan file lama
     rm -f "$COORDS_FILE" "$BROWSER_FILE" "$DONE_FILE"
 
-    # Init clipboard
     LAST_CLIP=$(termux-clipboard-get 2>/dev/null)
 
-    # Start keepalive background
     keepalive_loop &
     KEEPALIVE_PID=$!
 
     log INFO "Listening clipboard + monitor screenshot..."
     echo ""
 
-    while true; do
-        sleep $CLIP_POLL
+    BOT_START=$(date +%s)
 
-        # ── 1. Cek browser popup (APK minta konfirmasi) ───────────
+    while true; do
+        sleep "$CLIP_POLL"
+
+        # ── 1. Cek browser popup ──────────────────────────────────
         if [[ -f "$BROWSER_FILE" ]]; then
+            local content
             content=$(cat "$BROWSER_FILE" 2>/dev/null)
             if [[ "$content" == "check" ]]; then
                 check_browser_popup
             fi
         fi
 
-        # ── 2. OCR scan (interval menyesuaikan) ──────────────────
+        # ── 2. OCR scan ───────────────────────────────────────────
         if [[ $OCR_INTERVAL -eq $OCR_INTERVAL_LONG && $LAST_SUCCESS -gt 0 ]]; then
+            local now_s
             now_s=$(date +%s)
-            elapsed_s=$((now_s - LAST_SUCCESS))
+            local elapsed_s=$((now_s - LAST_SUCCESS))
             if [[ $elapsed_s -ge $OCR_INTERVAL_LONG ]]; then
                 OCR_INTERVAL=$OCR_INTERVAL_NORMAL
                 log OCR "OCR interval reset ke normal"
@@ -398,6 +407,7 @@ main() {
         if should_run_ocr; then
             log OCR "Screencap..."
             do_screencap
+            local screen_size
             screen_size=$(stat -c %s "$SCREENSHOT_FILE" 2>/dev/null || echo 0)
             log OCR "Screenshot: ${screen_size}bytes"
 
@@ -405,25 +415,25 @@ main() {
                 log OCR "Screenshot terlalu kecil, skip"
             else
                 log OCR "Jalankan tesseract --oem 0 --psm 3..."
-                tsv=$(timeout 60 env $TESS_ENV "$TESS_BIN" "$SCREENSHOT_FILE" stdout tsv --oem 0 --psm 3 2>&1)
+                local tsv
+                # FIX 7: Use array expansion for TESS_ENV
+                tsv=$(timeout 60 env "${TESS_ENV[@]}" "$TESS_BIN" "$SCREENSHOT_FILE" stdout tsv --oem 0 --psm 3 2>&1)
+                local tsv_lines
                 tsv_lines=$(echo "$tsv" | wc -l)
                 log OCR "Tesseract output: ${tsv_lines} baris"
 
-                # Log 5 baris pertama untuk debug
-                log OCR "Sample output: $(echo "$tsv" | head -3 | tr '	' '|' | tr '
-' ' ')"
+                log OCR "Sample output: $(echo "$tsv" | head -3 | tr '\t' '|' | tr '\n' ' ')"
 
-                # Log semua kata yang ditemukan level 5
-                words=$(echo "$tsv" | awk -F'	' '$1=="5" && NF>=12 && $11+0>30 {print $12"(conf="int($11)")"}' | tr '
-' ' ')
+                local words
+                words=$(echo "$tsv" | awk -F'\t' '$1=="5" && NF>=12 && $11+0>30 {print $12"(conf="int($11)")"}' | tr '\n' ' ')
                 if [[ -n "$words" ]]; then
                     log OCR "Kata terdeteksi: $words"
                 else
                     log OCR "Tidak ada kata terdeteksi (level 5, conf>30)"
                 fi
 
-                # Cari receive spesifik
-                recv=$(echo "$tsv" | awk -F'	' '$1=="5" && NF>=12 {tl=tolower($12); if(tl~/receive/) print $12,"x="$7,"y="$8,"conf="$11}')
+                local recv
+                recv=$(echo "$tsv" | awk -F'\t' '$1=="5" && NF>=12 {tl=tolower($12); if(tl~/receive/) print $12,"x="$7,"y="$8,"conf="$11}')
                 if [[ -n "$recv" ]]; then
                     log OCR "RECEIVE DITEMUKAN: $recv"
                 else
@@ -433,8 +443,7 @@ main() {
                 if [[ -n "$tsv" ]]; then
                     parse_popups "$tsv"
                     if [[ -f "$COORDS_FILE" ]]; then
-                        log OCR "COORDS TERBUAT: $(cat $COORDS_FILE | tr '
-' ' ')"
+                        log OCR "COORDS TERBUAT: $(tr '\n' ' ' < "$COORDS_FILE")"
                     else
                         log OCR "Coords tidak terbuat"
                     fi
