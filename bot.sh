@@ -13,7 +13,6 @@ API_URL="https://montanaweb.xyz/keyproxy/api/v1/241ba761-e303-4805-a299-bbc5cd5f
 KEEPALIVE_URL="https://montanaweb.xyz/keyproxy/dashboard.php"
 KEEPALIVE_INTERVAL=300       # ping keepalive tiap 5 menit
 
-# Package yang di-kill setelah dapat key
 TARGET_PACKAGES=(
     "com.roblox.clienu"
     "com.roblox.clienv"
@@ -45,11 +44,12 @@ DONE_FILE="/sdcard/rb_done.txt"           # bot.sh tulis key setelah berhasil
 
 # Timing
 CLIP_POLL=2            # cek clipboard tiap 2 detik
-OCR_INTERVAL_NORMAL=5  # OCR tiap 5 detik saat normal
+OCR_INTERVAL_NORMAL=10 # OCR tiap 10 detik (30 menit pertama)
 OCR_INTERVAL_LONG=1800 # OCR tiap 30 menit setelah key berhasil
-OCR_INTERVAL=5
+OCR_INTERVAL=10
 LAST_OCR=0
 LAST_SUCCESS=0
+BOT_START=0            # waktu bot mulai, untuk hitung 30 menit pertama
 LAST_CLIP=""
 DEVICE_NAME=""
 KEEPALIVE_PID=""
@@ -166,11 +166,22 @@ parse_popups() {
     ')
 
     if [[ -z "$result" ]]; then
-        log OCR "Tidak ada popup terdeteksi"
+        log OCR "parse_popups: awk tidak output apapun - cek kondisi dx<200 && recv_cy>cont_cy"
+        # Debug: print semua continue dan receive yang ditemukan
+        echo "$1" | awk -F'	' '
+        $1=="5" && NF>=12 {
+            tl=tolower($12)
+            if (tl~/continue/ || tl~/receive/) {
+                cx=$7+0+int($9/2); cy=$8+0+int($10/2)
+                print "[DEBUG] "tl" -> cx="cx" cy="cy
+            }
+        }' | while read -r dbg; do log OCR "$dbg"; done
         return
     fi
 
-    # Tulis coords file untuk tiap popup (APK baca satu per satu)
+    log OCR "parse_popups: awk hasil = $result"
+
+    # Tulis coords file untuk tiap popup
     while IFS="|" read -r region recv_x recv_y cont_x cont_y field_x field_y; do
         cat > "$COORDS_FILE" << COORDEOF
 appIndex=$region
@@ -335,7 +346,7 @@ main() {
     echo -e "${NC}"
     echo -e " Device  : ${WHITE}$DEVICE_NAME${NC}"
     echo -e " Packages: ${WHITE}${#TARGET_PACKAGES[@]}${NC} target"
-    echo -e " OCR scan: ${WHITE}normal=5s / setelah key=30menit${NC}"
+    echo -e " OCR scan: ${WHITE}10 detik (30 menit pertama) / 30 menit setelah key${NC}"
     echo ""
 
     # Cek deps
@@ -387,15 +398,50 @@ main() {
             fi
         fi
 
-        if should_run_ocr && [[ -f "$SCREENSHOT_FILE" ]]; then
-            log OCR "Scan tesseract..."
-            tsv=$(run_ocr)
-            if [[ -n "$tsv" ]]; then
-                parse_popups "$tsv"
+        if should_run_ocr; then
+            if [[ ! -f "$SCREENSHOT_FILE" ]]; then
+                log OCR "rb_screen.png belum ada, tunggu APK screencap..."
+            else
+                screen_age=$(( $(date +%s) - $(stat -c %Y "$SCREENSHOT_FILE" 2>/dev/null || echo 0) ))
+                screen_size=$(stat -c %s "$SCREENSHOT_FILE" 2>/dev/null || echo 0)
+                log OCR "Scan mulai - file: ${screen_size}bytes, umur: ${screen_age}s"
+
+                if [[ $screen_age -gt 30 ]]; then
+                    log OCR "Screenshot stale (${screen_age}s > 30s), skip"
+                elif [[ $screen_size -lt 10000 ]]; then
+                    log OCR "Screenshot terlalu kecil (${screen_size}bytes), skip"
+                else
+                    tsv=$(run_ocr)
+                    tsv_lines=$(echo "$tsv" | wc -l)
+                    log OCR "Tesseract selesai - ${tsv_lines} baris output"
+
+                    # Log kata yang ditemukan
+                    found_words=$(echo "$tsv" | awk -F'	' '$1=="5" && NF>=12 {tl=tolower($12); if(tl~/continue/ || tl~/receive/ || tl~/enter/) print $12"("$7","$8")"}' | tr '
+' ' ')
+                    if [[ -n "$found_words" ]]; then
+                        log OCR "Kata relevan: $found_words"
+                    else
+                        log OCR "Tidak ada kata Continue/Receive/Enter ditemukan"
+                    fi
+
+                    if [[ -n "$tsv" ]]; then
+                        parse_popups "$tsv"
+                        # Cek apakah coords file terbuat
+                        if [[ -f "$COORDS_FILE" ]]; then
+                            log OCR "rb_coords.txt berhasil ditulis!"
+                            log OCR "Isi: $(cat $COORDS_FILE | tr '
+' ' ')"
+                        else
+                            log OCR "rb_coords.txt TIDAK terbuat - parse gagal"
+                        fi
+                    else
+                        log OCR "Tesseract output kosong!"
+                    fi
+                fi
             fi
             LAST_OCR=$(date +%s)
             if [[ $OCR_INTERVAL -eq $OCR_INTERVAL_LONG ]]; then
-                log OCR "Scan selesai, berikutnya 30 menit lagi"
+                log OCR "Berikutnya 30 menit lagi"
             fi
         fi
 
