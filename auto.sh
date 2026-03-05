@@ -208,14 +208,6 @@ echo "📦 ZIP: $ZIP"
 sleep 1
 
 ###############################################################################
-# PRE-FLIGHT — Reinstall curl + openssl dulu SEBELUM dipakai
-# Ini fix bug: pkg upgrade bisa break curl di tengah jalan karena OpenSSL mismatch
-###############################################################################
-
-step 3 "Fixing curl + openssl"
-pkg reinstall curl openssl -y > /dev/null 2>&1 || true
-
-###############################################################################
 # STEP 0 — DEPENDENCY + TMUX BOT
 ###############################################################################
 
@@ -342,6 +334,15 @@ sed -i \
 } >> "$CONF"
 
 ###############################################################################
+# PRE-FLIGHT — Reinstall curl + openssl dulu SEBELUM dipakai
+# Ini fix bug: pkg upgrade bisa break curl di tengah jalan karena OpenSSL mismatch
+###############################################################################
+
+step 4 "Fixing curl + openssl"
+pkg reinstall curl openssl -y > /dev/null 2>&1 || true
+
+
+###############################################################################
 # STEP 4 — WINTER EXECUTE (ASLI)
 ###############################################################################
 
@@ -359,4 +360,5 @@ step 100 "ALL DONE ✅"
 echo ""
 echo "Bot running in tmux session: bot"
 echo "Attach with: tmux attach -t bot"
+
 
