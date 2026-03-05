@@ -271,7 +271,7 @@ step 40 "Applying Android tweaks"
 
 if command -v su >/dev/null 2>&1; then
   su -c '
-    wm density 192 &&
+    wm density 120 &&
     settings put global window_animation_scale 0 &&
     settings put global transition_animation_scale 0 &&
     settings put global animator_duration_scale 0 &&
@@ -393,3 +393,4 @@ step 100 "ALL DONE ✅"
 echo ""
 echo "Bot running in tmux session: bot"
 echo "Attach with: tmux attach -t bot"
+
