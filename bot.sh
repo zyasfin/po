@@ -15,15 +15,21 @@ KEEPALIVE_INTERVAL=300       # ping keepalive tiap 5 menit
 
 # Package yang di-kill setelah dapat key
 TARGET_PACKAGES=(
-    "com.target.package1"
-    "com.target.package2"
+    "com.roblox.clienu"
+    "com.roblox.clienv"
+    "com.roblox.clienw"
+    "com.roblox.clienx"
+    "com.roblox.clieny"
 )
 
-# Lokasi file license yang ditulis setelah dapat key
+# Semua path ini akan diisi key yang sama
 LICENSE_PATHS=(
-    "/data/data/com.target.package1/files/license.key"
-    "/data/data/com.target.package2/files/license.key"
-)
+    "/storage/emulated/0/Delta/Internals/Cache/license"
+    "/storage/emulated/0/Android/data/com.roblox.clienu/files/gloop/external/Internals/Cache/license"
+    "/storage/emulated/0/Android/data/com.roblox.clienv/files/gloop/external/Internals/Cache/license"
+    "/storage/emulated/0/Android/data/com.roblox.clienw/files/gloop/external/Internals/Cache/license"
+    "/storage/emulated/0/Android/data/com.roblox.clienx/files/gloop/external/Internals/Cache/license"
+    "/storage/emulated/0/Android/data/com.roblox.clieny/files/gloop/external/Internals/Cache/license"   
 
 # ════════════════════════════════════════════════════════════════
 # JANGAN EDIT DI BAWAH INI
