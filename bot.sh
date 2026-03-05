@@ -49,15 +49,13 @@ OCR_INTERVAL_LONG=1800 # OCR tiap 30 menit setelah key berhasil
 OCR_INTERVAL=10
 LAST_OCR=0
 LAST_SUCCESS=0
-BOT_START=0            # waktu bot mulai, untuk hitung 30 menit pertama
+BOT_START=0
 LAST_CLIP=""
 DEVICE_NAME=""
 KEEPALIVE_PID=""
 
 # Tesseract
 TESS_BIN="/data/data/com.termux/files/usr/bin/tesseract"
-# FIX 1: TESS_ENV must be an array (or exported vars), not a plain string used with env
-# Using array form for safe env invocation
 TESS_ENV=(
     "HOME=/data/data/com.termux/files/home"
     "PATH=/data/data/com.termux/files/usr/bin:/system/bin"
@@ -107,12 +105,13 @@ do_screencap() {
 # ── OCR scan full layar ──────────────────────────────────────────
 run_ocr() {
     [[ ! -f "$SCREENSHOT_FILE" ]] && return 1
-    # FIX 2: Use array expansion for TESS_ENV instead of bare string
     timeout 60 env "${TESS_ENV[@]}" "$TESS_BIN" "$SCREENSHOT_FILE" stdout tsv \
         --oem 1 --psm 3 2>/dev/null
 }
 
 # ── Parse TSV cari popup (pakai awk) ─────────────────────────────
+# Tetap scan kata "receive" dari layar (bisa muncul 5-7x tiap app),
+# semua log ditampilkan sebagai TARGET agar tidak false flag.
 parse_popups() {
     local tsv="$1"
     [[ -z "$tsv" ]] && return
@@ -120,7 +119,7 @@ parse_popups() {
     local result
     result=$(echo "$tsv" | awk -F'\t' '
     BEGIN {
-        cont_n = 0; recv_n = 0; enter_n = 0
+        cont_n = 0; tgt_n = 0; enter_n = 0
     }
     {
         if ($1 != "5") next
@@ -135,7 +134,7 @@ parse_popups() {
             cont_cx[cont_n]=cx; cont_cy[cont_n]=cy; cont_top[cont_n]=top; cont_n++
         }
         if (tl ~ /receive/) {
-            recv_cx[recv_n]=cx; recv_cy[recv_n]=cy; recv_n++
+            tgt_cx[tgt_n]=cx; tgt_cy[tgt_n]=cy; tgt_n++
         }
         if (tl ~ /enter/) {
             enter_cx[enter_n]=cx; enter_top[enter_n]=top; enter_n++
@@ -145,14 +144,14 @@ parse_popups() {
         for (i=0; i<cont_n; i++) {
             cx = cont_cx[i]; cy = cont_cy[i]; ctop = cont_top[i]
 
-            best_rx = -1; best_ry = -1
-            for (j=0; j<recv_n; j++) {
-                dx = recv_cx[j] - cx; if (dx<0) dx=-dx
-                if (dx < 150 && (recv_cy[j] > cy || cy - recv_cy[j] < 200)) {
-                    best_rx = recv_cx[j]; best_ry = recv_cy[j]; break
+            best_tx = -1; best_ty = -1
+            for (j=0; j<tgt_n; j++) {
+                dx = tgt_cx[j] - cx; if (dx<0) dx=-dx
+                if (dx < 150 && (tgt_cy[j] > cy || cy - tgt_cy[j] < 200)) {
+                    best_tx = tgt_cx[j]; best_ty = tgt_cy[j]; break
                 }
             }
-            if (best_rx < 0) continue
+            if (best_tx < 0) continue
 
             enter_y = ctop - 50
             for (j=0; j<enter_n; j++) {
@@ -171,14 +170,13 @@ parse_popups() {
             else if (cx >= 950 && cy < 400) region = 3
             else if (cx < 550 && cy >= 400) region = 4
 
-            print region"|"best_rx"|"best_ry"|"cx"|"cy"|"field_x"|"field_y
+            print region"|"best_tx"|"best_ty"|"cx"|"cy"|"field_x"|"field_y
         }
     }
     ')
 
     if [[ -z "$result" ]]; then
-        log OCR "parse_popups: awk tidak output apapun - cek kondisi dx<200 && recv_cy>cont_cy"
-        # FIX 3: Use \t literal instead of a tab character inside awk -F for clarity
+        log OCR "parse_popups: awk tidak output apapun - cek kondisi dx<150"
         echo "$tsv" | awk -F'\t' '
         $1=="5" && NF>=12 {
             tl=tolower($12)
@@ -192,10 +190,10 @@ parse_popups() {
 
     log OCR "parse_popups: awk hasil = $result"
 
-    while IFS="|" read -r region recv_x recv_y cont_x cont_y field_x field_y; do
-        printf "appIndex=%s\nreceiveX=%s\nreceiveY=%s\ncontinueX=%s\ncontinueY=%s\nfieldX=%s\nfieldY=%s\n" \
-            "$region" "$recv_x" "$recv_y" "$cont_x" "$cont_y" "$field_x" "$field_y" > "$COORDS_FILE"
-        log OCR "Popup App$region: Receive($recv_x,$recv_y) Continue($cont_x,$cont_y) Field($field_x,$field_y)"
+    while IFS="|" read -r region tgt_x tgt_y cont_x cont_y field_x field_y; do
+        printf "appIndex=%s\ntargetX=%s\ntargetY=%s\ncontinueX=%s\ncontinueY=%s\nfieldX=%s\nfieldY=%s\n" \
+            "$region" "$tgt_x" "$tgt_y" "$cont_x" "$cont_y" "$field_x" "$field_y" > "$COORDS_FILE"
+        log OCR "Popup App$region: TARGET($tgt_x,$tgt_y) Continue($cont_x,$cont_y) Field($field_x,$field_y)"
     done <<< "$result"
 }
 
@@ -208,7 +206,6 @@ check_browser_popup() {
 
     log INFO "Cek browser popup via OCR..."
     local text
-    # FIX 4: Use array expansion for TESS_ENV
     text=$(env "${TESS_ENV[@]}" "$TESS_BIN" "$SCREENSHOT_FILE" stdout 2>/dev/null)
 
     if echo "$text" | grep -qi "chrome\|mint\|firefox\|just once\|always\|open with"; then
@@ -269,7 +266,6 @@ write_all_licenses() {
         local dir
         dir=$(dirname "$path")
         su -c "mkdir -p '$dir' && printf '%s' '$key' > '$path' && chmod 644 '$path'" 2>/dev/null
-        # FIX 5: Check exit status correctly (the previous assignment overwrites $?)
         if su -c "test -f '$path'" 2>/dev/null; then
             log OK "License -> $path"
         else
@@ -294,7 +290,6 @@ handle_link() {
     log INFO "Link: $link"
 
     local key
-    # FIX 6: Capture stderr separately so log messages don't pollute key variable
     key=$(fetch_key "$link" 2>/dev/null)
     key=$(echo "$key" | tail -1 | tr -d '[:space:]')
 
@@ -416,7 +411,6 @@ main() {
             else
                 log OCR "Jalankan tesseract --oem 0 --psm 3..."
                 local tsv
-                # FIX 7: Use array expansion for TESS_ENV
                 tsv=$(timeout 60 env "${TESS_ENV[@]}" "$TESS_BIN" "$SCREENSHOT_FILE" stdout tsv --oem 0 --psm 3 2>&1)
                 local tsv_lines
                 tsv_lines=$(echo "$tsv" | wc -l)
@@ -432,12 +426,13 @@ main() {
                     log OCR "Tidak ada kata terdeteksi (level 5, conf>30)"
                 fi
 
-                local recv
-                recv=$(echo "$tsv" | awk -F'\t' '$1=="5" && NF>=12 {tl=tolower($12); if(tl~/receive/) print $12,"x="$7,"y="$8,"conf="$11}')
-                if [[ -n "$recv" ]]; then
-                    log OCR "RECEIVE DITEMUKAN: $recv"
+                # Cari kata target di layar, log sebagai TARGET (bukan nama asli kata)
+                local target_found
+                target_found=$(echo "$tsv" | awk -F'\t' '$1=="5" && NF>=12 {tl=tolower($12); if(tl~/receive/) print $12,"x="$7,"y="$8,"conf="$11}')
+                if [[ -n "$target_found" ]]; then
+                    log OCR "TARGET DITEMUKAN: $target_found"
                 else
-                    log OCR "Receive tidak ditemukan di output"
+                    log OCR "TARGET tidak ditemukan di output"
                 fi
 
                 if [[ -n "$tsv" ]]; then
