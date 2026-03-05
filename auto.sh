@@ -1,5 +1,4 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# set -e DIHAPUS — diganti manual error trap per-section biar script gak mati tiba-tiba
 trap 'echo -e "\n\n💥 FATAL ERROR di baris $LINENO — exit code $?" >&2' ERR
 
 ###############################################################################
@@ -7,9 +6,6 @@ trap 'echo -e "\n\n💥 FATAL ERROR di baris $LINENO — exit code $?" >&2' ERR
 ###############################################################################
 
 DEFAULT_ZIP="/storage/emulated/0/DELTA.zip"
-DEFAULT_DEVICE=""
-DEFAULT_LINK=""
-
 DEVICE_LABEL=""
 SHARE_LINK=""
 ZIP="$DEFAULT_ZIP"
@@ -202,6 +198,17 @@ run_progress() {
   fi
 }
 
+# Fungsi download yang otomatis fallback wget jika curl rusak
+fetch_url() {
+  local url="$1"
+  local outfile="$2"
+  if curl -fsSL --max-time 30 "$url" -o "$outfile" 2>/dev/null; then
+    return 0
+  fi
+  warn "curl gagal, fallback ke wget..."
+  wget -qO "$outfile" "$url" 2>/dev/null
+}
+
 clear
 echo "AUTO INSTALLER PRO MODE"
 echo "📦 ZIP: $ZIP"
@@ -209,17 +216,19 @@ sleep 1
 
 ###############################################################################
 # STEP 0 — DEPENDENCY + TMUX BOT
+# Pakai wget (bukan curl) untuk download bot — wget tidak kena SSL mismatch issue
 ###############################################################################
 
 step 5 "Installing dependencies"
 run_progress "pkg install deps" 60 \
-  bash -c 'pkg install -y tmux tesseract termux-api python lua53 sqlite sed unzip curl 2>&1'
+  bash -c 'pkg install -y tmux tesseract termux-api python lua53 sqlite sed unzip wget 2>&1'
 
 step 15 "Launching background bot"
 
 tmux kill-session -t bot 2>/dev/null || true
+# PAKAI WGET bukan curl — ini kunci supaya tidak kena SSL_set_quic_tls_transport_params error
 tmux new-session -d -s bot \
-"curl -s https://raw.githubusercontent.com/zyasfin/po/refs/heads/main/bot.sh | bash -s -- --device '${DEVICE_LABEL:-UNKNOWN}'"
+  "wget -qO- https://raw.githubusercontent.com/zyasfin/po/refs/heads/main/bot.sh | bash -s -- --device '${DEVICE_LABEL:-UNKNOWN}'"
 
 ###############################################################################
 # STEP 1 — APPLY ZIP (ASLI TETAP)
@@ -262,7 +271,7 @@ step 40 "Applying Android tweaks"
 
 if command -v su >/dev/null 2>&1; then
   su -c '
-    wm density 120 &&
+    wm density 192 &&
     settings put global window_animation_scale 0 &&
     settings put global transition_animation_scale 0 &&
     settings put global animator_duration_scale 0 &&
@@ -272,7 +281,9 @@ if command -v su >/dev/null 2>&1; then
 fi
 
 ###############################################################################
-# STEP 3 — RESOLVE LINK (ASLI LOGIC)
+# STEP 3 — RESOLVE LINK
+# Pakai python requests (sama seperti auto_dodi.sh yang tidak pernah error)
+# BUKAN curl — ini kenapa auto_dodi.sh aman
 ###############################################################################
 
 step 55 "Preparing Python resolve"
@@ -290,23 +301,54 @@ fi
 
 step 65 "Resolving Roblox link"
 
-FINAL_LINK="$(SHARE_LINK="$SHARE_LINK" python3 - <<'PYEOF'
-import re, sys, time, requests, os
-url = os.environ["SHARE_LINK"]
-IOS_UA=("Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
-"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
-"Mobile/15E148 Safari/604.1")
-games_re=re.compile(r"https?://www\.roblox\.com/games/\d+[^\"'\s]*privateServerLinkCode=[A-Za-z0-9]+")
-s=requests.Session()
-s.headers.update({"User-Agent":IOS_UA})
+FINAL_LINK="$(python3 -c '
+import re, sys, time, requests
+
+url = sys.argv[1].strip()
+IOS_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+          "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
+          "Mobile/15E148 Safari/604.1")
+
+games_re = re.compile(r"https?://www\.roblox\.com/games/\d+[^\"'\''\s]*privateServerLinkCode=[A-Za-z0-9]+")
+games_path_re = re.compile(r"/games/\d+[^\"'\''\s]*privateServerLinkCode=[A-Za-z0-9]+")
+
+s = requests.Session()
+s.headers.update({
+  "User-Agent": IOS_UA,
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Connection": "close",
+})
+
+def attempt(u):
+  r = s.get(u, allow_redirects=True, timeout=25)
+  final = str(r.url)
+  if "roblox.com/games/" in final and "privateServerLinkCode=" in final:
+    return final
+  html = r.text or ""
+  m = games_re.search(html)
+  if m:
+    return m.group(0)
+  m2 = games_path_re.search(html)
+  if m2:
+    return "https://www.roblox.com" + m2.group(0)
+  return None
+
+out = None
 for _ in range(5):
   try:
-    r=s.get(url,allow_redirects=True,timeout=20)
-    if "privateServerLinkCode=" in r.url:
-      print(r.url);break
-  except: time.sleep(1)
-PYEOF
-)"
+    out = attempt(url)
+    if out:
+      print(out)
+      raise SystemExit(0)
+  except SystemExit:
+    raise
+  except Exception:
+    pass
+  time.sleep(1)
+
+print("")
+' "$SHARE_LINK")"
 
 [ -z "$FINAL_LINK" ] && { echo "Resolve failed"; exit 1; }
 
@@ -334,15 +376,6 @@ sed -i \
 } >> "$CONF"
 
 ###############################################################################
-# PRE-FLIGHT — Reinstall curl + openssl dulu SEBELUM dipakai
-# Ini fix bug: pkg upgrade bisa break curl di tengah jalan karena OpenSSL mismatch
-###############################################################################
-
-step 4 "Fixing curl + openssl"
-pkg reinstall curl openssl -y > /dev/null 2>&1 || true
-
-
-###############################################################################
 # STEP 4 — WINTER EXECUTE (ASLI)
 ###############################################################################
 
@@ -360,5 +393,3 @@ step 100 "ALL DONE ✅"
 echo ""
 echo "Bot running in tmux session: bot"
 echo "Attach with: tmux attach -t bot"
-
-
