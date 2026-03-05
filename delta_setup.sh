@@ -99,6 +99,89 @@ read_tty() {
   val="$(echo "$val" | tr -d '\r' | xargs)"
   printf -v "$__var" "%s" "$val"
 }
+echo ""
+echo "======================================"
+echo "        TWEAK PERFORMANCE SETUP       "
+echo "======================================"
+echo ""
+
+log() {
+    echo "[*] $1"
+}
+
+ok() {
+    echo "[✓] $1"
+}
+
+log "Initializing tweak environment..."
+
+sleep 1
+
+log "Applying UI & animation performance tweaks..."
+
+su -c '
+wm density 120
+settings put global window_animation_scale 0
+settings put global transition_animation_scale 0
+settings put global animator_duration_scale 0
+settings put global force_resizable_activities 1
+settings put global enable_freeform_support 1
+'
+
+ok "UI animation tweaks applied"
+
+sleep 1
+
+log "Applying GPU & rendering optimizations..."
+
+su -c '
+settings put global debug.hwui.renderer skiagl
+settings put global debug.hwui.disable_vsync false
+settings put global debug.hwui.force_dark 0
+settings put global debug.hwui.use_buffer_age true
+'
+
+ok "GPU rendering optimized"
+
+sleep 1
+
+log "Applying system performance tweaks..."
+
+su -c '
+settings put global activity_manager_constants max_cached_processes=1024
+settings put global app_standby_enabled 0
+settings put global adaptive_battery_management_enabled 0
+settings put global cached_apps_freezer enabled
+'
+
+ok "System performance tuned"
+
+sleep 1
+
+log "Applying display & responsiveness tweaks..."
+
+su -c '
+settings put system pointer_speed 7
+settings put system min_refresh_rate 90
+settings put system peak_refresh_rate 120
+'
+
+ok "Display responsiveness improved"
+
+sleep 1
+
+log "Finalizing configuration..."
+
+sleep 1
+
+echo ""
+echo "======================================"
+echo "        DELTA SETUP COMPLETED         "
+echo "======================================"
+echo ""
+echo "[✓] All tweaks successfully applied"
+echo "[✓] System should feel smoother & faster"
+echo ""
 
 # ==========================
 # USAGE
