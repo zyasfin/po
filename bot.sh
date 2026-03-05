@@ -30,6 +30,7 @@ LICENSE_PATHS=(
     "/storage/emulated/0/Android/data/com.roblox.clienw/files/gloop/external/Internals/Cache/license"
     "/storage/emulated/0/Android/data/com.roblox.clienx/files/gloop/external/Internals/Cache/license"
     "/storage/emulated/0/Android/data/com.roblox.clieny/files/gloop/external/Internals/Cache/license"   
+)
 
 # ════════════════════════════════════════════════════════════════
 # JANGAN EDIT DI BAWAH INI
