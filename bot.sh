@@ -13,6 +13,7 @@ API_URL="https://montanaweb.xyz/keyproxy/api/v1/241ba761-e303-4805-a299-bbc5cd5f
 KEEPALIVE_URL="https://montanaweb.xyz/keyproxy/dashboard.php"
 KEEPALIVE_INTERVAL=300       # ping keepalive tiap 5 menit
 
+# Package yang di-kill setelah dapat key
 TARGET_PACKAGES=(
     "com.roblox.clienu"
     "com.roblox.clienv"
@@ -183,15 +184,7 @@ parse_popups() {
 
     # Tulis coords file untuk tiap popup
     while IFS="|" read -r region recv_x recv_y cont_x cont_y field_x field_y; do
-        cat > "$COORDS_FILE" << COORDEOF
-appIndex=$region
-receiveX=$recv_x
-receiveY=$recv_y
-continueX=$cont_x
-continueY=$cont_y
-fieldX=$field_x
-fieldY=$field_y
-COORDEOF
+        printf "appIndex=%s\nreceiveX=%s\nreceiveY=%s\ncontinueX=%s\ncontinueY=%s\nfieldX=%s\nfieldY=%s\n"             "$region" "$recv_x" "$recv_y" "$cont_x" "$cont_y" "$field_x" "$field_y" > "$COORDS_FILE"
         log OCR "Popup App$region: Receive($recv_x,$recv_y) Continue($cont_x,$cont_y) Field($field_x,$field_y)"
     done <<< "$result"
 }
