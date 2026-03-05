@@ -57,7 +57,7 @@ KEEPALIVE_PID=""
 
 # Tesseract
 TESS_BIN="/data/data/com.termux/files/usr/bin/tesseract"
-TESS_ENV="HOME=/data/data/com.termux/files/home PATH=/data/data/com.termux/files/usr/bin:/system/bin LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib TESSDATA_PREFIX=/data/data/com.termux/files/usr/share"
+TESS_ENV="HOME=/data/data/com.termux/files/home PATH=/data/data/com.termux/files/usr/bin:/system/bin LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib TESSDATA_PREFIX=/data/data/com.termux/files/usr/share/tessdata"
 
 # Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
