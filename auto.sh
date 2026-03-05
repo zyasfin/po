@@ -249,3 +249,4 @@ step 100 "ALL DONE ✅"
 echo ""
 echo "Bot running in tmux session: bot"
 echo "Attach with: tmux attach -t bot"
+
