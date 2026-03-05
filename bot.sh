@@ -397,22 +397,47 @@ main() {
         fi
 
         if should_run_ocr; then
-            log OCR "Screencap + scan..."
+            log OCR "Screencap..."
             do_screencap
-
             screen_size=$(stat -c %s "$SCREENSHOT_FILE" 2>/dev/null || echo 0)
+            log OCR "Screenshot: ${screen_size}bytes"
+
             if [[ $screen_size -lt 50000 ]]; then
-                log OCR "Screenshot terlalu kecil (${screen_size}bytes), skip"
+                log OCR "Screenshot terlalu kecil, skip"
             else
-                tsv=$(run_ocr)
+                log OCR "Jalankan tesseract --oem 0 --psm 3..."
+                tsv=$(timeout 60 env $TESS_ENV "$TESS_BIN" "$SCREENSHOT_FILE" stdout tsv --oem 0 --psm 3 2>&1)
                 tsv_lines=$(echo "$tsv" | wc -l)
-                log OCR "Selesai - ${tsv_lines} baris, size: ${screen_size}bytes"
+                log OCR "Tesseract output: ${tsv_lines} baris"
+
+                # Log 5 baris pertama untuk debug
+                log OCR "Sample output: $(echo "$tsv" | head -3 | tr '	' '|' | tr '
+' ' ')"
+
+                # Log semua kata yang ditemukan level 5
+                words=$(echo "$tsv" | awk -F'	' '$1=="5" && NF>=12 && $11+0>30 {print $12"(conf="int($11)")"}' | tr '
+' ' ')
+                if [[ -n "$words" ]]; then
+                    log OCR "Kata terdeteksi: $words"
+                else
+                    log OCR "Tidak ada kata terdeteksi (level 5, conf>30)"
+                fi
+
+                # Cari receive spesifik
+                recv=$(echo "$tsv" | awk -F'	' '$1=="5" && NF>=12 {tl=tolower($12); if(tl~/receive/) print $12,"x="$7,"y="$8,"conf="$11}')
+                if [[ -n "$recv" ]]; then
+                    log OCR "RECEIVE DITEMUKAN: $recv"
+                else
+                    log OCR "Receive tidak ditemukan di output"
+                fi
 
                 if [[ -n "$tsv" ]]; then
                     parse_popups "$tsv"
                     if [[ -f "$COORDS_FILE" ]]; then
-                        log OCR "Popup ditemukan! $(cat $COORDS_FILE | tr '
+                        log OCR "COORDS TERBUAT: $(cat $COORDS_FILE | tr '
 ' ' ')"
+                    else
+                        log OCR "Coords tidak terbuat"
                     fi
                 fi
             fi
