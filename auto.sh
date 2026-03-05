@@ -1,7 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # set -e DIHAPUS — diganti manual error trap per-section biar script gak mati tiba-tiba
-# tapi tetap exit on unhandled critical error lewat trap ERR
-
 trap 'echo -e "\n\n💥 FATAL ERROR di baris $LINENO — exit code $?" >&2' ERR
 
 ###############################################################################
@@ -26,11 +24,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 ###############################################################################
-# SMART ZIP PATH RESOLUTION (FIX BUG --zip DELTA.zip not found)
-# Urutan resolve:
-#   1. Path as-is (absolute atau relative dari CWD)
-#   2. /storage/emulated/0/<nama file>
-#   3. /sdcard/<nama file>
+# SMART ZIP PATH RESOLUTION
 ###############################################################################
 
 resolve_zip() {
@@ -38,7 +32,6 @@ resolve_zip() {
   local basename_zip
   basename_zip="$(basename "$input")"
 
-  # Candidate paths
   local candidates=(
     "$input"
     "/storage/emulated/0/$basename_zip"
@@ -54,7 +47,6 @@ resolve_zip() {
     fi
   done
 
-  # Tidak ketemu di mana-mana
   echo ""
   return 1
 }
@@ -154,20 +146,17 @@ run() {
 }
 
 ###############################################################################
-# DYNAMIC PROGRESS — animasi "masih jalan" dengan bounce bar + elapsed timer
-# Dipanggil: run_progress "judul" <detik_estimasi> command args...
-# Semua function asli TETAP, ini function TAMBAHAN
+# DYNAMIC PROGRESS — bounce bar + spinner + elapsed timer
 ###############################################################################
 
 run_progress() {
   local title="$1"
-  local est="$2"   # estimasi detik (untuk scaling bounce, boleh 0)
+  local est="$2"
   shift 2
 
   mkdir -p "$(dirname "$LOGF")"
   : > "$LOGF"
 
-  # Jalankan command di background
   ("$@") >>"$LOGF" 2>&1 &
   local pid=$!
 
@@ -181,26 +170,18 @@ run_progress() {
   printf "\n"
 
   while kill -0 "$pid" 2>/dev/null; do
-    # Bounce block
     local bar=""
     for ((col=0; col<BAR_W; col++)); do
-      if [ $col -eq $pos ]; then
-        bar+="▓"
-      else
-        bar+="░"
-      fi
+      if [ $col -eq $pos ]; then bar+="▓"; else bar+="░"; fi
     done
 
-    # Spinner frame
     local sp="${frames[$((fi % ${#frames[@]}))]}"
     fi=$((fi+1))
 
-    # Elapsed
     local mins=$(( elapsed / 60 ))
     local secs=$(( elapsed % 60 ))
     printf "\r  %s [%s] %02d:%02d  %-30s" "$sp" "$bar" "$mins" "$secs" "$title"
 
-    # Bounce direction
     pos=$((pos + dir))
     if [ $pos -ge $((BAR_W-1)) ]; then dir=-1; fi
     if [ $pos -le 0 ];            then dir=1;  fi
@@ -227,12 +208,20 @@ echo "📦 ZIP: $ZIP"
 sleep 1
 
 ###############################################################################
+# PRE-FLIGHT — Reinstall curl + openssl dulu SEBELUM dipakai
+# Ini fix bug: pkg upgrade bisa break curl di tengah jalan karena OpenSSL mismatch
+###############################################################################
+
+step 3 "Fixing curl + openssl"
+pkg reinstall curl openssl -y > /dev/null 2>&1 || true
+
+###############################################################################
 # STEP 0 — DEPENDENCY + TMUX BOT
 ###############################################################################
 
 step 5 "Installing dependencies"
-run_progress "pkg update + install deps" 30 \
-  bash -c 'pkg update -y && pkg install -y tmux tesseract termux-api python lua53 sqlite sed unzip curl'
+run_progress "pkg install deps" 60 \
+  bash -c 'pkg install -y tmux tesseract termux-api python lua53 sqlite sed unzip curl 2>&1'
 
 step 15 "Launching background bot"
 
@@ -281,7 +270,7 @@ step 40 "Applying Android tweaks"
 
 if command -v su >/dev/null 2>&1; then
   su -c '
-    wm density 120 &&
+    wm density 192 &&
     settings put global window_animation_scale 0 &&
     settings put global transition_animation_scale 0 &&
     settings put global animator_duration_scale 0 &&
@@ -370,4 +359,3 @@ step 100 "ALL DONE ✅"
 echo ""
 echo "Bot running in tmux session: bot"
 echo "Attach with: tmux attach -t bot"
-
