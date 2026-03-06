@@ -48,16 +48,13 @@ CYAN='\033[0;36m'; DIM='\033[2m'; BOLD='\033[1m'; NC='\033[0m'
 # TIMESTAMP + LOG HELPERS
 ###############################################################################
 
-ts() { date '+%H:%M:%S'; }
-
+ts()      { date '+%H:%M:%S'; }
 elapsed() {
-  local now=$(date +%s)
-  local diff=$(( now - SCRIPT_START ))
+  local diff=$(( $(date +%s) - SCRIPT_START ))
   printf "%02d:%02d" $(( diff/60 )) $(( diff%60 ))
 }
 
 tlog() {
-  # tlog COLOR TAG message
   local color=$1 tag=$2; shift 2
   echo -e "${DIM}[$(ts)][+$(elapsed)]${NC} ${color}[${tag}]${NC} $*"
 }
@@ -66,6 +63,29 @@ log()  { tlog "$GREEN"  "OK"   "$*"; }
 warn() { tlog "$YELLOW" "WARN" "$*"; }
 info() { tlog "$CYAN"   "INFO" "$*"; }
 err()  { tlog "$RED"    "ERR"  "$*"; }
+
+###############################################################################
+# CURL DIAGNOSTIC — hanya test, tidak ganti behaviour
+###############################################################################
+
+check_curl() {
+  local label="$1"
+  if curl --version > /dev/null 2>&1; then
+    log "curl OK ✓  [$label]"
+  else
+    warn "curl BROKEN [$label] ← titik ini yg bermasalah"
+  fi
+}
+
+# Download — tetap pakai curl biasa
+fetch() {
+  local url="$1" out="$2"
+  curl -fsSL "$url" -o "$out"
+}
+
+fetch_pipe() {
+  curl -fsSL "$1"
+}
 
 ###############################################################################
 # UI — BATTERY PROGRESS BAR
@@ -147,16 +167,6 @@ read_tty() {
   printf -v "$__var" "%s" "$val"
 }
 
-# Download — curl fallback wget
-fetch() {
-  local url="$1" out="$2"
-  curl -fsSL "$url" -o "$out" 2>/dev/null || wget -qO "$out" "$url"
-}
-
-fetch_pipe() {
-  curl -fsSL "$1" 2>/dev/null || wget -qO- "$1"
-}
-
 ###############################################################################
 # START
 ###############################################################################
@@ -167,22 +177,27 @@ echo -e "${DIM}Started: $(date '+%Y-%m-%d %H:%M:%S')${NC}"
 sleep 1
 
 ###############################################################################
-# STEP 0 — BUKA APP
+# STEP 0 — CEK CURL (sekali di awal, hasilnya dipakai seluruh script)
+###############################################################################
+
+step 1 "Checking curl"
+check_curl "awal script"
+
+###############################################################################
+# STEP 1 — BUKA APP
 ###############################################################################
 
 step 2 "Opening required apps"
 
 info "Membuka Termux:Boot..."
-# pakai termux-open (Termux:API) — bisa buka app tanpa root
 termux-open com.termux.boot > /dev/null 2>&1 || \
 am start -n com.termux.boot/com.termux.boot.TermuxBootActivity > /dev/null 2>&1 || \
 am start -a android.intent.action.MAIN \
          -c android.intent.category.LAUNCHER \
          -p com.termux.boot > /dev/null 2>&1 || true
 
-# Verifikasi package ter-install
 if dumpsys package com.termux.boot 2>/dev/null | grep -q "firstInstallTime"; then
-  log "Termux:Boot ter-install ✓ (buka sekali manual dari app drawer kalau belum)"
+  log "Termux:Boot ter-install ✓"
 else
   warn "Termux:Boot belum ter-install — install dari F-Droid lalu buka sekali manual"
 fi
@@ -190,23 +205,28 @@ fi
 sleep 2
 
 info "Membuka com.rootbot..."
-am start -n com.rootbot/.MainActivity                          > /dev/null 2>&1 || \
-am start -a android.intent.action.MAIN -p com.rootbot          > /dev/null 2>&1 || true
+am start -n com.rootbot/.MainActivity > /dev/null 2>&1 || \
+am start -a android.intent.action.MAIN -p com.rootbot > /dev/null 2>&1 || true
 log "com.rootbot launch dikirim"
 
 sleep 1
 
 ###############################################################################
-# STEP 1 — DEPENDENCIES
+# STEP 2 — DEPENDENCIES
 ###############################################################################
 
 step 5 "Installing dependencies"
-run_progress "pkg update" 30   bash -c 'pkg update -y > /dev/null 2>&1'
-run_progress "pkg install packages" 60   bash -c 'pkg install -y tmux termux-api python lua53 sqlite sed unzip wget > /dev/null 2>&1'
-run_progress "pkg install curl" 15   bash -c 'pkg install -y curl > /dev/null 2>&1'   && log "curl OK" || warn "curl gagal, pakai wget sebagai fallback"
+run_progress "pkg update" 30 \
+  bash -c 'pkg update -y > /dev/null 2>&1'
+run_progress "pkg install packages" 60 \
+  bash -c 'pkg install -y tmux termux-api python lua53 sqlite sed unzip wget > /dev/null 2>&1'
+run_progress "pkg install curl" 15 \
+  bash -c 'pkg install -y curl > /dev/null 2>&1'
+
+check_curl "setelah pkg install"
 
 ###############################################################################
-# STEP 2 — DEVICE NAME
+# STEP 3 — DEVICE NAME
 ###############################################################################
 
 step 10 "Saving device name"
@@ -217,10 +237,10 @@ fi
 
 CONFIG_FILE="$HOME/.rootbot_config"
 echo "DEVICE_NAME=$DEVICE_LABEL" > "$CONFIG_FILE"
-log "Device name '$DEVICE_LABEL' disimpan ke $CONFIG_FILE"
+log "Device name '$DEVICE_LABEL' disimpan"
 
 ###############################################################################
-# STEP 3 — SETUP TERMUX:BOOT
+# STEP 4 — SETUP TERMUX:BOOT
 ###############################################################################
 
 step 15 "Setting up Termux:Boot"
@@ -233,7 +253,7 @@ chmod +x "$BOOT_DIR/start.sh"
 log "boot.sh terpasang — auto-start aktif saat reboot"
 
 ###############################################################################
-# STEP 4 — LAUNCH WATCHDOG + BOT
+# STEP 5 — LAUNCH WATCHDOG + BOT
 ###############################################################################
 
 step 20 "Launching watchdog + bot"
@@ -245,16 +265,15 @@ sleep 1
 
 info "Start tmux session 'watchdog'..."
 tmux new-session -d -s watchdog \
-  "curl -fsSL '$WATCHDOG_URL' | bash -s || wget -qO- '$WATCHDOG_URL' | bash -s"
+  "curl -fsSL '$WATCHDOG_URL' | bash -s"
 log "Watchdog jalan — bot akan distart otomatis oleh watchdog"
 
 ###############################################################################
-# STEP 5 — APPLY ZIP
+# STEP 6 — APPLY ZIP
 ###############################################################################
 
 step 35 "Applying ZIP package"
 
-# Cari ZIP di beberapa lokasi umum, case-insensitive
 if [ ! -f "$ZIP" ]; then
   FOUND=""
   for SEARCH_DIR in \
@@ -273,13 +292,12 @@ if [ ! -f "$ZIP" ]; then
     info "ZIP ditemukan: $FOUND"
     ZIP="$FOUND"
   else
-    err "ZIP tidak ditemukan! Coba taruh DELTA.zip di /sdcard/ atau /sdcard/Download/"
-    err "Atau jalankan: bash auto.sh --zip /path/ke/DELTA.zip"
+    err "ZIP tidak ditemukan! Taruh DELTA.zip di /sdcard/ atau pakai --zip /path/DELTA.zip"
     exit 1
   fi
 fi
+
 info "Menggunakan ZIP: $ZIP"
-info "Unzip $ZIP -> $TMP"
 rm -rf "$TMP"
 mkdir -p "$TMP"
 unzip -q "$ZIP" -d "$TMP"
@@ -287,9 +305,9 @@ unzip -q "$ZIP" -d "$TMP"
 shopt -s nullglob
 for ITEM in "$TMP"/*; do
   NAME="$(basename "$ITEM")"
-  if   [ "$NAME" = "Delta" ];    then rm -rf "$DELTA_OUT";              mv "$ITEM" "$DELTA_OUT"
-  elif [ "$NAME" = "Download" ]; then rm -rf "$DOWNLOAD_OUT";           mv "$ITEM" "$DOWNLOAD_OUT"
-  else                                rm -rf "$ANDROID_DATA/$NAME";     mv "$ITEM" "$ANDROID_DATA/$NAME"
+  if   [ "$NAME" = "Delta" ];    then rm -rf "$DELTA_OUT";          mv "$ITEM" "$DELTA_OUT"
+  elif [ "$NAME" = "Download" ]; then rm -rf "$DOWNLOAD_OUT";       mv "$ITEM" "$DOWNLOAD_OUT"
+  else                                rm -rf "$ANDROID_DATA/$NAME"; mv "$ITEM" "$ANDROID_DATA/$NAME"
   fi
   info "Installed: $NAME"
 done
@@ -297,7 +315,7 @@ rm -rf "$TMP"
 log "ZIP applied"
 
 ###############################################################################
-# STEP 6 — ANDROID TWEAK
+# STEP 7 — ANDROID TWEAK
 ###############################################################################
 
 step 50 "Applying Android tweaks"
@@ -317,13 +335,16 @@ else
 fi
 
 ###############################################################################
-# STEP 7 — RESOLVE LINK
+# STEP 8 — RESOLVE LINK
 ###############################################################################
 
 step 60 "Preparing Python resolve"
 
 termux-setup-storage || true
 run_progress "pip install requests" 30 python3 -m pip install -U requests
+
+# Re-check curl setelah pip — pip kadang upgrade lib yang affect curl
+check_curl "setelah pip install"
 
 if [ -z "$SHARE_LINK" ]; then
   read_tty "roblox SHARE link: " SHARE_LINK
@@ -353,7 +374,7 @@ PYEOF
 log "Resolved: $FINAL_LINK"
 
 ###############################################################################
-# STEP 8 — WRITE CONFIG
+# STEP 9 — WRITE CONFIG
 ###############################################################################
 
 step 85 "Writing config"
@@ -377,10 +398,13 @@ sed -i \
 log "Config ditulis"
 
 ###############################################################################
-# STEP 9 — WINTER EXECUTE
+# STEP 10 — WINTER EXECUTE
 ###############################################################################
 
 step 95 "Running winter-rejoin.lua"
+
+# Final re-check curl sebelum lua dijalankan
+check_curl "sebelum lua winter-rejoin"
 
 info "cd /sdcard/Download && lua winter-rejoin.lua"
 cd /sdcard/Download
