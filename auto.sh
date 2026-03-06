@@ -231,10 +231,9 @@ for PKG in tmux termux-api python lua53 sqlite sed unzip wget; do
   fi
 done
 
-run_progress "pkg install curl" 15 \
-  bash -c 'pkg install -y curl > /dev/null 2>&1'
-
-check_curl "setelah pkg install"
+# JANGAN install curl — pkg install curl justru upgrade libngtcp2 jadi broken
+# curl sudah ada & OK dari awal, biarkan saja
+check_curl "setelah semua pkg install"
 
 ###############################################################################
 # STEP 3 — DEVICE NAME
