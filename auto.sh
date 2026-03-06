@@ -296,7 +296,7 @@ step 50 "Applying Android tweaks"
 if command -v su >/dev/null 2>&1; then
   info "Applying root tweaks via su..."
   su -c '
-    wm density 192 &&
+    wm density 120 &&
     settings put global window_animation_scale 0 &&
     settings put global transition_animation_scale 0 &&
     settings put global animator_duration_scale 0 &&
@@ -393,3 +393,4 @@ echo -e " ${GREEN}✓${NC} Bot          : tmux attach -t bot"
 echo -e " ${GREEN}✓${NC} Watchdog     : tmux attach -t watchdog"
 echo -e " ${GREEN}✓${NC} Auto-reboot  : Termux:Boot ✓"
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
