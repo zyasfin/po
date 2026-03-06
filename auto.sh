@@ -173,15 +173,18 @@ sleep 1
 step 2 "Opening required apps"
 
 info "Membuka Termux:Boot..."
-if am start -n com.termux.boot/com.termux.boot.TermuxBootActivity > /dev/null 2>&1 || \
-   am start -n com.termux.boot/.TermuxBootActivity                > /dev/null 2>&1 || \
-   am start -a android.intent.action.MAIN \
-            -c android.intent.category.LAUNCHER \
-            -p com.termux.boot                                    > /dev/null 2>&1 || \
-   monkey -p com.termux.boot 1                                    > /dev/null 2>&1; then
-  log "Termux:Boot dibuka"
+# pakai termux-open (Termux:API) — bisa buka app tanpa root
+termux-open com.termux.boot > /dev/null 2>&1 || \
+am start -n com.termux.boot/com.termux.boot.TermuxBootActivity > /dev/null 2>&1 || \
+am start -a android.intent.action.MAIN \
+         -c android.intent.category.LAUNCHER \
+         -p com.termux.boot > /dev/null 2>&1 || true
+
+# Verifikasi package ter-install
+if dumpsys package com.termux.boot 2>/dev/null | grep -q "firstInstallTime"; then
+  log "Termux:Boot ter-install ✓ (buka sekali manual dari app drawer kalau belum)"
 else
-  warn "Termux:Boot tidak ditemukan — install dari F-Droid lalu jalankan sekali manual"
+  warn "Termux:Boot belum ter-install — install dari F-Droid lalu buka sekali manual"
 fi
 
 sleep 2
@@ -251,7 +254,31 @@ log "Watchdog jalan — bot akan distart otomatis oleh watchdog"
 
 step 35 "Applying ZIP package"
 
-[ -f "$ZIP" ] || { err "ZIP not found: $ZIP"; exit 1; }
+# Cari ZIP di beberapa lokasi umum, case-insensitive
+if [ ! -f "$ZIP" ]; then
+  FOUND=""
+  for SEARCH_DIR in \
+    "/storage/emulated/0" \
+    "/sdcard" \
+    "/storage/emulated/0/Download" \
+    "/sdcard/Download" \
+    "$HOME/storage/shared" \
+    "$HOME/storage/downloads"
+  do
+    FOUND=$(find "$SEARCH_DIR" -maxdepth 1 -iname "delta.zip" 2>/dev/null | head -1)
+    [ -n "$FOUND" ] && break
+  done
+
+  if [ -n "$FOUND" ]; then
+    info "ZIP ditemukan: $FOUND"
+    ZIP="$FOUND"
+  else
+    err "ZIP tidak ditemukan! Coba taruh DELTA.zip di /sdcard/ atau /sdcard/Download/"
+    err "Atau jalankan: bash auto.sh --zip /path/ke/DELTA.zip"
+    exit 1
+  fi
+fi
+info "Menggunakan ZIP: $ZIP"
 info "Unzip $ZIP -> $TMP"
 rm -rf "$TMP"
 mkdir -p "$TMP"
