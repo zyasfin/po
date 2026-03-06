@@ -28,118 +28,165 @@ get_cpu_pct() {
 # ── ARM CPU part → core name ──────────────────────────────
 part_to_name() {
   case "$1" in
-    # ARM Cortex-A classic
-    0xd01) echo "Cortex-A32"     ;; 0xd03) echo "Cortex-A53"     ;;
-    0xd04) echo "Cortex-A35"     ;; 0xd05) echo "Cortex-A55"     ;;
-    0xd06) echo "Cortex-A65"     ;; 0xd07) echo "Cortex-A57"     ;;
-    0xd08) echo "Cortex-A72"     ;; 0xd09) echo "Cortex-A73"     ;;
-    0xd0a) echo "Cortex-A75"     ;; 0xd0b) echo "Cortex-A76"     ;;
-    0xd0c) echo "Neoverse-N1"    ;; 0xd0d) echo "Cortex-A77"     ;;
-    0xd0e) echo "Cortex-A76AE"   ;; 0xd40) echo "Neoverse-V1"    ;;
-    0xd41) echo "Cortex-A78"     ;; 0xd42) echo "Cortex-A78AE"   ;;
-    0xd43) echo "Cortex-A65AE"   ;; 0xd44) echo "Cortex-X1"      ;;
-    0xd46) echo "Cortex-A510"    ;; 0xd47) echo "Cortex-A710"    ;;
-    0xd48) echo "Cortex-X2"      ;; 0xd49) echo "Neoverse-N2"    ;;
-    0xd4a) echo "Neoverse-E1"    ;; 0xd4b) echo "Cortex-A78C"    ;;
-    0xd4c) echo "Cortex-X1C"     ;; 0xd4d) echo "Cortex-A715"    ;;
-    0xd4e) echo "Cortex-X3"      ;; 0xd4f) echo "Neoverse-V2"    ;;
-    0xd80) echo "Cortex-A520"    ;; 0xd81) echo "Cortex-A720"    ;;
-    0xd82) echo "Cortex-X4"      ;; 0xd84) echo "Cortex-A725"    ;;
-    0xd85) echo "Cortex-X925"    ;; 0xd87) echo "Cortex-A520AE"  ;;
-    # Qualcomm Kryo
-    0x800) echo "Kryo 2xx Gold"  ;; 0x801) echo "Kryo 2xx Silver";;
-    0x802) echo "Kryo 3xx Gold"  ;; 0x803) echo "Kryo 3xx Silver";;
-    0x804) echo "Kryo 485 Gold"  ;; 0x805) echo "Kryo 485 Silver";;
-    # Samsung Mongoose / Exynos
-    0x001) echo "Mongoose M1"    ;; 0x002) echo "Mongoose M2"    ;;
-    0x003) echo "Meerkat M3"     ;; 0x004) echo "Meerkat M4"     ;;
-    # Apple
-    0x022) echo "Apple Firestorm";; 0x023) echo "Apple Icestorm" ;;
-    0x030) echo "Apple Blizzard" ;; 0x031) echo "Apple Avalanche" ;;
-    # NVIDIA Denver/Carmel
-    0x003) echo "Denver"         ;; 0x004) echo "Carmel"         ;;
+    0xd01) echo "Cortex-A32"      ;; 0xd03) echo "Cortex-A53"      ;;
+    0xd04) echo "Cortex-A35"      ;; 0xd05) echo "Cortex-A55"      ;;
+    0xd06) echo "Cortex-A65"      ;; 0xd07) echo "Cortex-A57"      ;;
+    0xd08) echo "Cortex-A72"      ;; 0xd09) echo "Cortex-A73"      ;;
+    0xd0a) echo "Cortex-A75"      ;; 0xd0b) echo "Cortex-A76"      ;;
+    0xd0c) echo "Neoverse-N1"     ;; 0xd0d) echo "Cortex-A77"      ;;
+    0xd0e) echo "Cortex-A76AE"    ;; 0xd40) echo "Neoverse-V1"     ;;
+    0xd41) echo "Cortex-A78"      ;; 0xd42) echo "Cortex-A78AE"    ;;
+    0xd43) echo "Cortex-A65AE"    ;; 0xd44) echo "Cortex-X1"       ;;
+    0xd46) echo "Cortex-A510"     ;; 0xd47) echo "Cortex-A710"     ;;
+    0xd48) echo "Cortex-X2"       ;; 0xd49) echo "Neoverse-N2"     ;;
+    0xd4a) echo "Neoverse-E1"     ;; 0xd4b) echo "Cortex-A78C"     ;;
+    0xd4c) echo "Cortex-X1C"      ;; 0xd4d) echo "Cortex-A715"     ;;
+    0xd4e) echo "Cortex-X3"       ;; 0xd4f) echo "Neoverse-V2"     ;;
+    0xd80) echo "Cortex-A520"     ;; 0xd81) echo "Cortex-A720"     ;;
+    0xd82) echo "Cortex-X4"       ;; 0xd84) echo "Cortex-A725"     ;;
+    0xd85) echo "Cortex-X925"     ;; 0xd87) echo "Cortex-A520AE"   ;;
+    0x800) echo "Kryo 2xx Gold"   ;; 0x801) echo "Kryo 2xx Silver" ;;
+    0x802) echo "Kryo 3xx Gold"   ;; 0x803) echo "Kryo 3xx Silver" ;;
+    0x804) echo "Kryo 485 Gold"   ;; 0x805) echo "Kryo 485 Silver" ;;
+    0x001) echo "Mongoose M1"     ;; 0x002) echo "Mongoose M2"     ;;
+    0x003) echo "Meerkat M3"      ;; 0x004) echo "Meerkat M4"      ;;
+    0x022) echo "Apple Firestorm" ;; 0x023) echo "Apple Icestorm"  ;;
+    0x030) echo "Apple Blizzard"  ;; 0x031) echo "Apple Avalanche" ;;
     *) [ -n "$1" ] && echo "ARM($1)" || echo "Unknown" ;;
   esac
 }
 
-# ── SoC brand detection (all sources) ────────────────────
+# ── SoC brand detection ───────────────────────────────────
 detect_cpu_brand() {
-  local raw="" dt_model="" platform="" soc_model="" soc_vendor=""
-  local hw_field="" chip_id=""
+  local dt_model="" raw="" platform="" soc_model="" soc_vendor="" hw_field="" chip_id=""
 
-  # Source 1: device-tree model (most descriptive)
-  for f in /proc/device-tree/model \
-            /sys/firmware/devicetree/base/model; do
+  # Collect all sources
+  for f in /proc/device-tree/model /sys/firmware/devicetree/base/model; do
     [ -f "$f" ] && dt_model=$(cat "$f" 2>/dev/null | tr -d '\0' | xargs) && break
   done
-
-  # Source 2: soc0 sysfs
-  for f in /sys/devices/soc0/machine \
-            /sys/devices/platform/soc/soc0/machine; do
+  for f in /sys/devices/soc0/machine /sys/devices/platform/soc/soc0/machine; do
     [ -f "$f" ] && raw=$(cat "$f" 2>/dev/null | tr -d '\0' | xargs) && break
   done
-  [ -z "$raw" ] && raw="$dt_model"
-
-  # Source 3: getprop (Android/Termux)
   platform=$(getprop ro.board.platform 2>/dev/null | xargs)
   soc_model=$(getprop ro.soc.model 2>/dev/null | xargs)
   soc_vendor=$(getprop ro.soc.manufacturer 2>/dev/null | xargs)
-
-  # Source 4: /proc/cpuinfo Hardware field
   hw_field=$(grep -m1 -i "^Hardware" /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs)
-
-  # Source 5: chip-id / compatible from device tree
-  for f in /proc/device-tree/compatible \
-            /sys/firmware/devicetree/base/compatible; do
+  for f in /proc/device-tree/compatible /sys/firmware/devicetree/base/compatible; do
     [ -f "$f" ] && chip_id=$(cat "$f" 2>/dev/null | tr -d '\0' | tr ',' ' ' | xargs) && break
   done
 
   CPU_BRAND="Unknown SoC"
 
-  # ── PASS 1: device-tree model string matching ──────────
-  local dtm_lower; dtm_lower=$(echo "$dt_model $raw $chip_id" | tr '[:upper:]' '[:lower:]')
+  # ── PASS 1: ro.soc.model + ro.soc.manufacturer (most accurate on Android) ──
+  if [ -n "$soc_model" ] && [ -n "$soc_vendor" ]; then
+    CPU_BRAND="$soc_vendor $soc_model"
+    return
+  fi
+  # soc_model alone
+  if [ -n "$soc_model" ]; then
+    CPU_BRAND="$soc_model"
+    return
+  fi
 
-  # Qualcomm QRB (industrial)
+  # ── PASS 2: ro.board.platform codename ────────────────
+  case "$platform" in
+    # Samsung Exynos (universal prefix)
+    universal9611)  CPU_BRAND="Samsung Exynos 9611"       ; return ;;
+    universal9610)  CPU_BRAND="Samsung Exynos 9610"       ; return ;;
+    universal9820)  CPU_BRAND="Samsung Exynos 9820"       ; return ;;
+    universal9825)  CPU_BRAND="Samsung Exynos 9825"       ; return ;;
+    universal990)   CPU_BRAND="Samsung Exynos 990"        ; return ;;
+    universal2100)  CPU_BRAND="Samsung Exynos 2100"       ; return ;;
+    universal2200)  CPU_BRAND="Samsung Exynos 2200"       ; return ;;
+    universal2400)  CPU_BRAND="Samsung Exynos 2400"       ; return ;;
+    universal1280)  CPU_BRAND="Samsung Exynos 1280"       ; return ;;
+    universal1380)  CPU_BRAND="Samsung Exynos 1380"       ; return ;;
+    universal7885)  CPU_BRAND="Samsung Exynos 7885"       ; return ;;
+    universal7904)  CPU_BRAND="Samsung Exynos 7904"       ; return ;;
+    universal8895)  CPU_BRAND="Samsung Exynos 8895"       ; return ;;
+    # Qualcomm codenames
+    kona)           CPU_BRAND="Qualcomm Snapdragon 865"   ; return ;;
+    huracan)        CPU_BRAND="Qualcomm Snapdragon 870"   ; return ;;
+    lahaina)        CPU_BRAND="Qualcomm Snapdragon 888"   ; return ;;
+    shima)          CPU_BRAND="Qualcomm Snapdragon 888+"  ; return ;;
+    waipio)         CPU_BRAND="Qualcomm Snapdragon 8 Gen1"; return ;;
+    taro)           CPU_BRAND="Qualcomm Snapdragon 8+ Gen1"; return ;;
+    kalama)         CPU_BRAND="Qualcomm Snapdragon 8 Gen2"; return ;;
+    pineapple)      CPU_BRAND="Qualcomm Snapdragon 8 Gen3"; return ;;
+    sun)            CPU_BRAND="Qualcomm Snapdragon 8 Gen4"; return ;;
+    crow)           CPU_BRAND="Qualcomm Snapdragon 7 Gen1"; return ;;
+    cape)           CPU_BRAND="Qualcomm Snapdragon 7+ Gen2"; return ;;
+    holi)           CPU_BRAND="Qualcomm Snapdragon 778G"  ; return ;;
+    bengal)         CPU_BRAND="Qualcomm Snapdragon 662"   ; return ;;
+    msmnile)        CPU_BRAND="Qualcomm Snapdragon 855"   ; return ;;
+    sdm845)         CPU_BRAND="Qualcomm Snapdragon 845"   ; return ;;
+    sdm660)         CPU_BRAND="Qualcomm Snapdragon 660"   ; return ;;
+    sdm636)         CPU_BRAND="Qualcomm Snapdragon 636"   ; return ;;
+    sm6150)         CPU_BRAND="Qualcomm Snapdragon 675"   ; return ;;
+    lito)           CPU_BRAND="Qualcomm Snapdragon 765G"  ; return ;;
+    atoll)          CPU_BRAND="Qualcomm Snapdragon 730G"  ; return ;;
+    # MediaTek
+    mt6983)         CPU_BRAND="MediaTek Dimensity 9000"   ; return ;;
+    mt6985)         CPU_BRAND="MediaTek Dimensity 9200"   ; return ;;
+    mt6989)         CPU_BRAND="MediaTek Dimensity 9300"   ; return ;;
+    mt6893)         CPU_BRAND="MediaTek Dimensity 1200"   ; return ;;
+    mt6891)         CPU_BRAND="MediaTek Dimensity 1100"   ; return ;;
+    mt6877)         CPU_BRAND="MediaTek Dimensity 900"    ; return ;;
+    mt6873)         CPU_BRAND="MediaTek Dimensity 800"    ; return ;;
+    mt6853)         CPU_BRAND="MediaTek Dimensity 700"    ; return ;;
+    mt6768)         CPU_BRAND="MediaTek Helio G85"        ; return ;;
+    mt6769)         CPU_BRAND="MediaTek Helio G85"        ; return ;;
+    mt6785)         CPU_BRAND="MediaTek Helio G90T"       ; return ;;
+    mt6781)         CPU_BRAND="MediaTek Helio G96"        ; return ;;
+    mt6833)         CPU_BRAND="MediaTek Dimensity 6020"   ; return ;;
+  esac
+
+  # ── PASS 3: device-tree / sysfs string matching ───────
+  local dtm_lower
+  dtm_lower=$(echo "$dt_model $raw $chip_id $hw_field" | tr '[:upper:]' '[:lower:]')
+
+  # Qualcomm QRB industrial
   case "$dtm_lower" in
     *"qrb5165"*) CPU_BRAND="Qualcomm QRB5165 (Snapdragon 865)" ; return ;;
     *"qrb4210"*) CPU_BRAND="Qualcomm QRB4210 (Snapdragon 410)" ; return ;;
     *"qrb2210"*) CPU_BRAND="Qualcomm QRB2210 (Snapdragon 225)" ; return ;;
   esac
 
-  # Qualcomm SM codename
+  # Qualcomm SM codename in DT
   case "$dtm_lower" in
-    *"sm8650"*) CPU_BRAND="Qualcomm Snapdragon 8 Gen3"  ; return ;;
-    *"sm8550"*) CPU_BRAND="Qualcomm Snapdragon 8 Gen2"  ; return ;;
-    *"sm8475"*) CPU_BRAND="Qualcomm Snapdragon 8+ Gen1" ; return ;;
-    *"sm8450"*) CPU_BRAND="Qualcomm Snapdragon 8 Gen1"  ; return ;;
-    *"sm8350"*) CPU_BRAND="Qualcomm Snapdragon 888"     ; return ;;
-    *"sm8250"*) CPU_BRAND="Qualcomm Snapdragon 865"     ; return ;;
-    *"sm8150"*) CPU_BRAND="Qualcomm Snapdragon 855"     ; return ;;
-    *"sm8125"*) CPU_BRAND="Qualcomm Snapdragon 860"     ; return ;;
-    *"sm7675"*) CPU_BRAND="Qualcomm Snapdragon 7+ Gen3" ; return ;;
-    *"sm7550"*) CPU_BRAND="Qualcomm Snapdragon 7 Gen2"  ; return ;;
-    *"sm7450"*) CPU_BRAND="Qualcomm Snapdragon 7+ Gen2" ; return ;;
-    *"sm7325"*) CPU_BRAND="Qualcomm Snapdragon 778G"    ; return ;;
-    *"sm6375"*) CPU_BRAND="Qualcomm Snapdragon 695"     ; return ;;
-    *"sm6350"*) CPU_BRAND="Qualcomm Snapdragon 690"     ; return ;;
-    *"sm4350"*) CPU_BRAND="Qualcomm Snapdragon 480"     ; return ;;
+    *"sm8650"*) CPU_BRAND="Qualcomm Snapdragon 8 Gen3"   ; return ;;
+    *"sm8550"*) CPU_BRAND="Qualcomm Snapdragon 8 Gen2"   ; return ;;
+    *"sm8475"*) CPU_BRAND="Qualcomm Snapdragon 8+ Gen1"  ; return ;;
+    *"sm8450"*) CPU_BRAND="Qualcomm Snapdragon 8 Gen1"   ; return ;;
+    *"sm8350"*) CPU_BRAND="Qualcomm Snapdragon 888"      ; return ;;
+    *"sm8250"*) CPU_BRAND="Qualcomm Snapdragon 865"      ; return ;;
+    *"sm8150"*) CPU_BRAND="Qualcomm Snapdragon 855"      ; return ;;
+    *"sm7675"*) CPU_BRAND="Qualcomm Snapdragon 7+ Gen3"  ; return ;;
+    *"sm7550"*) CPU_BRAND="Qualcomm Snapdragon 7 Gen2"   ; return ;;
+    *"sm7450"*) CPU_BRAND="Qualcomm Snapdragon 7+ Gen2"  ; return ;;
+    *"sm7325"*) CPU_BRAND="Qualcomm Snapdragon 778G"     ; return ;;
+    *"sm6375"*) CPU_BRAND="Qualcomm Snapdragon 695"      ; return ;;
+    *"sm6350"*) CPU_BRAND="Qualcomm Snapdragon 690"      ; return ;;
+    *"sm4350"*) CPU_BRAND="Qualcomm Snapdragon 480"      ; return ;;
+    *"sda845"*|*"sdm845"*) CPU_BRAND="Qualcomm Snapdragon 845" ; return ;;
   esac
 
   # Rockchip
   case "$dtm_lower" in
-    *"rk3588s"*) CPU_BRAND="Rockchip RK3588S" ; return ;;
-    *"rk3588"*)  CPU_BRAND="Rockchip RK3588"  ; return ;;
-    *"rk3566"*)  CPU_BRAND="Rockchip RK3566"  ; return ;;
-    *"rk3568"*)  CPU_BRAND="Rockchip RK3568"  ; return ;;
-    *"rk3399"*)  CPU_BRAND="Rockchip RK3399"  ; return ;;
-    *"rk3399pro"*) CPU_BRAND="Rockchip RK3399Pro" ; return ;;
-    *"rk3326"*)  CPU_BRAND="Rockchip RK3326"  ; return ;;
-    *"rk3328"*)  CPU_BRAND="Rockchip RK3328"  ; return ;;
-    *"rk3288"*)  CPU_BRAND="Rockchip RK3288"  ; return ;;
-    *"rk3229"*)  CPU_BRAND="Rockchip RK3229"  ; return ;;
+    *"rk3588s"*)   CPU_BRAND="Rockchip RK3588S"    ; return ;;
+    *"rk3588"*)    CPU_BRAND="Rockchip RK3588"     ; return ;;
+    *"rk3568"*)    CPU_BRAND="Rockchip RK3568"     ; return ;;
+    *"rk3566"*)    CPU_BRAND="Rockchip RK3566"     ; return ;;
+    *"rk3399pro"*) CPU_BRAND="Rockchip RK3399Pro"  ; return ;;
+    *"rk3399"*)    CPU_BRAND="Rockchip RK3399"     ; return ;;
+    *"rk3328"*)    CPU_BRAND="Rockchip RK3328"     ; return ;;
+    *"rk3326"*)    CPU_BRAND="Rockchip RK3326"     ; return ;;
+    *"rk3288"*)    CPU_BRAND="Rockchip RK3288"     ; return ;;
+    *"rk3229"*)    CPU_BRAND="Rockchip RK3229"     ; return ;;
+    *"rk3128"*)    CPU_BRAND="Rockchip RK3128"     ; return ;;
   esac
 
-  # MediaTek Dimensity / Helio
+  # MediaTek in DT
   case "$dtm_lower" in
     *"mt6989"*|*"dimensity 9300"*) CPU_BRAND="MediaTek Dimensity 9300" ; return ;;
     *"mt6985"*|*"dimensity 9200"*) CPU_BRAND="MediaTek Dimensity 9200" ; return ;;
@@ -149,58 +196,58 @@ detect_cpu_brand() {
     *"mt6877"*|*"dimensity 900"*)  CPU_BRAND="MediaTek Dimensity 900"  ; return ;;
     *"mt6873"*|*"dimensity 800"*)  CPU_BRAND="MediaTek Dimensity 800"  ; return ;;
     *"mt6853"*|*"dimensity 700"*)  CPU_BRAND="MediaTek Dimensity 700"  ; return ;;
-    *"mt6768"*|*"helio g85"*)      CPU_BRAND="MediaTek Helio G85"      ; return ;;
-    *"mt6769"*|*"helio g85"*)      CPU_BRAND="MediaTek Helio G85"      ; return ;;
-    *"mt6785"*|*"helio g90"*)      CPU_BRAND="MediaTek Helio G90T"     ; return ;;
     *"mt6833"*)                    CPU_BRAND="MediaTek Dimensity 6020"  ; return ;;
     *"mt6781"*)                    CPU_BRAND="MediaTek Helio G96"       ; return ;;
+    *"mt6785"*)                    CPU_BRAND="MediaTek Helio G90T"      ; return ;;
+    *"mt6769"*|*"mt6768"*)         CPU_BRAND="MediaTek Helio G85"       ; return ;;
   esac
 
-  # Samsung Exynos
+  # Samsung Exynos in DT
   case "$dtm_lower" in
-    *"exynos2400"*) CPU_BRAND="Samsung Exynos 2400" ; return ;;
-    *"exynos2200"*) CPU_BRAND="Samsung Exynos 2200" ; return ;;
-    *"exynos2100"*) CPU_BRAND="Samsung Exynos 2100" ; return ;;
-    *"exynos990"*)  CPU_BRAND="Samsung Exynos 990"  ; return ;;
-    *"exynos980"*)  CPU_BRAND="Samsung Exynos 980"  ; return ;;
-    *"exynos9825"*) CPU_BRAND="Samsung Exynos 9825" ; return ;;
-    *"exynos9820"*) CPU_BRAND="Samsung Exynos 9820" ; return ;;
-    *"exynos9810"*) CPU_BRAND="Samsung Exynos 9810" ; return ;;
-    *"s5e9935"*)    CPU_BRAND="Samsung Exynos 2400" ; return ;;
-    *"s5e9925"*)    CPU_BRAND="Samsung Exynos 2200" ; return ;;
+    *"exynos2400"*|*"s5e9935"*) CPU_BRAND="Samsung Exynos 2400" ; return ;;
+    *"exynos2200"*|*"s5e9925"*) CPU_BRAND="Samsung Exynos 2200" ; return ;;
+    *"exynos2100"*|*"s5e9840"*) CPU_BRAND="Samsung Exynos 2100" ; return ;;
+    *"exynos990"*)               CPU_BRAND="Samsung Exynos 990"  ; return ;;
+    *"exynos9825"*)              CPU_BRAND="Samsung Exynos 9825" ; return ;;
+    *"exynos9820"*)              CPU_BRAND="Samsung Exynos 9820" ; return ;;
+    *"exynos9810"*)              CPU_BRAND="Samsung Exynos 9810" ; return ;;
+    *"exynos9611"*)              CPU_BRAND="Samsung Exynos 9611" ; return ;;
+    *"exynos7885"*)              CPU_BRAND="Samsung Exynos 7885" ; return ;;
   esac
 
   # HiSilicon Kirin
   case "$dtm_lower" in
-    *"kirin990"*|*"hi3690"*)  CPU_BRAND="HiSilicon Kirin 990"  ; return ;;
-    *"kirin980"*|*"hi3680"*)  CPU_BRAND="HiSilicon Kirin 980"  ; return ;;
-    *"kirin970"*|*"hi3660"*)  CPU_BRAND="HiSilicon Kirin 970"  ; return ;;
-    *"kirin960"*)             CPU_BRAND="HiSilicon Kirin 960"  ; return ;;
+    *"kirin990"*|*"hi3690"*) CPU_BRAND="HiSilicon Kirin 990" ; return ;;
+    *"kirin980"*|*"hi3680"*) CPU_BRAND="HiSilicon Kirin 980" ; return ;;
+    *"kirin970"*|*"hi3660"*) CPU_BRAND="HiSilicon Kirin 970" ; return ;;
+    *"kirin960"*)             CPU_BRAND="HiSilicon Kirin 960" ; return ;;
+    *"kirin710"*)             CPU_BRAND="HiSilicon Kirin 710" ; return ;;
   esac
 
   # Google Tensor
   case "$dtm_lower" in
-    *"gs201"*|*"tensor g2"*) CPU_BRAND="Google Tensor G2" ; return ;;
-    *"gs101"*|*"tensor"*)    CPU_BRAND="Google Tensor G1" ; return ;;
-    *"zuma"*)                CPU_BRAND="Google Tensor G3" ; return ;;
+    *"zuma"*)                CPU_BRAND="Google Tensor G3"  ; return ;;
+    *"gs201"*|*"tensor g2"*) CPU_BRAND="Google Tensor G2"  ; return ;;
+    *"gs101"*|*"tensor"*)    CPU_BRAND="Google Tensor G1"  ; return ;;
   esac
 
   # Allwinner
   case "$dtm_lower" in
-    *"sun50iw9"*|*"a100"*)  CPU_BRAND="Allwinner A100"  ; return ;;
-    *"sun50iw10"*|*"h616"*) CPU_BRAND="Allwinner H616"  ; return ;;
-    *"sun50iw6"*|*"a64"*)   CPU_BRAND="Allwinner A64"   ; return ;;
-    *"sun8i"*|*"h3"*)       CPU_BRAND="Allwinner H3"    ; return ;;
-    *"sun8i"*|*"h5"*)       CPU_BRAND="Allwinner H5"    ; return ;;
-    *"sun50i"*)              CPU_BRAND="Allwinner (sun50i)" ; return ;;
+    *"sun50iw9"*|*"a100"*)   CPU_BRAND="Allwinner A100"     ; return ;;
+    *"sun50iw10"*|*"h616"*)  CPU_BRAND="Allwinner H616"     ; return ;;
+    *"sun50iw6"*|*"a64"*)    CPU_BRAND="Allwinner A64"      ; return ;;
+    *"sun8i"*"h3"*)          CPU_BRAND="Allwinner H3"       ; return ;;
+    *"sun8i"*"h5"*)          CPU_BRAND="Allwinner H5"       ; return ;;
+    *"sun50i"*)               CPU_BRAND="Allwinner (sun50i)" ; return ;;
   esac
 
   # Amlogic
   case "$dtm_lower" in
     *"s922x"*) CPU_BRAND="Amlogic S922X" ; return ;;
+    *"a311d"*) CPU_BRAND="Amlogic A311D" ; return ;;
+    *"s905x3"*) CPU_BRAND="Amlogic S905X3" ; return ;;
     *"s905x"*) CPU_BRAND="Amlogic S905X" ; return ;;
     *"s905"*)  CPU_BRAND="Amlogic S905"  ; return ;;
-    *"a311d"*) CPU_BRAND="Amlogic A311D" ; return ;;
   esac
 
   # Broadcom / Raspberry Pi
@@ -213,70 +260,41 @@ detect_cpu_brand() {
 
   # NVIDIA Tegra
   case "$dtm_lower" in
-    *"tegra234"*) CPU_BRAND="NVIDIA Tegra234 (Orin)"  ; return ;;
+    *"tegra234"*) CPU_BRAND="NVIDIA Tegra234 (Orin)"   ; return ;;
     *"tegra194"*) CPU_BRAND="NVIDIA Tegra194 (Xavier)" ; return ;;
     *"tegra186"*) CPU_BRAND="NVIDIA Tegra186 (Parker)" ; return ;;
-    *"tegra210"*) CPU_BRAND="NVIDIA Tegra210 (X1)"    ; return ;;
+    *"tegra210"*) CPU_BRAND="NVIDIA Tegra210 (X1)"     ; return ;;
   esac
 
-  # ── PASS 2: getprop platform codename ─────────────────
-  case "$platform" in
-    kona)        CPU_BRAND="Qualcomm Snapdragon 865/870"  ;;
-    lahaina)     CPU_BRAND="Qualcomm Snapdragon 888/888+" ;;
-    waipio)      CPU_BRAND="Qualcomm Snapdragon 8 Gen1"   ;;
-    taro)        CPU_BRAND="Qualcomm Snapdragon 8+ Gen1"  ;;
-    kalama)      CPU_BRAND="Qualcomm Snapdragon 8 Gen2"   ;;
-    pineapple)   CPU_BRAND="Qualcomm Snapdragon 8 Gen3"   ;;
-    sun)         CPU_BRAND="Qualcomm Snapdragon 8 Gen4"   ;;
-    crow)        CPU_BRAND="Qualcomm Snapdragon 7 Gen1"   ;;
-    cape)        CPU_BRAND="Qualcomm Snapdragon 7+ Gen2"  ;;
-    holi)        CPU_BRAND="Qualcomm Snapdragon 778G"     ;;
-    bengal)      CPU_BRAND="Qualcomm Snapdragon 662/665"  ;;
-    msmnile)     CPU_BRAND="Qualcomm Snapdragon 855"      ;;
-    sdm845)      CPU_BRAND="Qualcomm Snapdragon 845"      ;;
-    sdm660)      CPU_BRAND="Qualcomm Snapdragon 660"      ;;
-    mt6983)      CPU_BRAND="MediaTek Dimensity 9000"      ;;
-    mt6985)      CPU_BRAND="MediaTek Dimensity 9200"      ;;
-    mt6893)      CPU_BRAND="MediaTek Dimensity 1200"      ;;
-    mt6877)      CPU_BRAND="MediaTek Dimensity 900"       ;;
-    mt6768)      CPU_BRAND="MediaTek Helio G85"           ;;
-    exynos2100)  CPU_BRAND="Samsung Exynos 2100"          ;;
-    exynos990)   CPU_BRAND="Samsung Exynos 990"           ;;
+  # Generic Qualcomm string in DT
+  case "$dtm_lower" in
+    *"qualcomm"*)
+      local chip
+      chip=$(echo "$dtm_lower" | grep -oP '(qrb|sdm|sm|msm)[0-9a-z]+' | head -1 | tr '[:lower:]' '[:upper:]')
+      [ -n "$chip" ] && CPU_BRAND="Qualcomm $chip" || CPU_BRAND="Qualcomm SoC"
+      return ;;
   esac
-  [ "$CPU_BRAND" != "Unknown SoC" ] && return
-
-  # ── PASS 3: ro.soc.model direct ───────────────────────
-  if [ -n "$soc_model" ]; then
-    local vendor_prefix="${soc_vendor:-Qualcomm}"
-    CPU_BRAND="$vendor_prefix $soc_model"
-    return
-  fi
 
   # ── PASS 4: CPU part combination fingerprint ──────────
+  # Only used as last resort — some devices report wrong part IDs
   local parts
   parts=$(grep "CPU part" /proc/cpuinfo 2>/dev/null | \
           awk '{print $NF}' | tr '[:upper:]' '[:lower:]' | sort -u | tr '\n' '|')
 
   case "$parts" in
-    *"0x805"*"0xd0d"*|*"0xd0d"*"0x805"*) CPU_BRAND="Qualcomm Snapdragon 865"     ;;
-    *"0x804"*"0x805"*)                     CPU_BRAND="Qualcomm Snapdragon 855/860" ;;
-    *"0xd05"*"0xd41"*"0xd44"*)            CPU_BRAND="Qualcomm Snapdragon 888"     ;;
-    *"0xd46"*"0xd47"*"0xd48"*)            CPU_BRAND="Qualcomm Snapdragon 8 Gen1"  ;;
-    *"0xd46"*"0xd4d"*"0xd4e"*)            CPU_BRAND="Qualcomm Snapdragon 8 Gen2"  ;;
-    *"0xd80"*"0xd81"*"0xd82"*)            CPU_BRAND="Qualcomm Snapdragon 8 Gen3"  ;;
-    *"0xd84"*"0xd85"*)                    CPU_BRAND="Qualcomm Snapdragon 8 Gen4"  ;;
-    *"0xd05"*"0xd0b"*)                    CPU_BRAND="MediaTek/Qualcomm (A55+A76)" ;;
-    *"0xd05"*"0xd47"*"0xd48"*)            CPU_BRAND="MediaTek Dimensity 9000"     ;;
-    *"0xd46"*"0xd47"*)                    CPU_BRAND="MediaTek Dimensity 1200"     ;;
-    # RK3588 = 4x A55 + 4x A76
-    *"0xd05"*"0xd0b"*)                    CPU_BRAND="Rockchip RK3588 (A55+A76)"   ;;
-    # Single core type
-    *"0xd03"*)                            CPU_BRAND="ARM Cortex-A53 SoC"          ;;
-    *"0xd05"*)                            CPU_BRAND="ARM Cortex-A55 SoC"          ;;
+    *"0x805"*"0xd0d"*|*"0xd0d"*"0x805"*) CPU_BRAND="Qualcomm Snapdragon 865"      ;;
+    *"0x804"*"0x805"*)                     CPU_BRAND="Qualcomm Snapdragon 855/860"  ;;
+    *"0xd05"*"0xd41"*"0xd44"*)            CPU_BRAND="Qualcomm Snapdragon 888"      ;;
+    *"0xd46"*"0xd47"*"0xd48"*)            CPU_BRAND="Qualcomm Snapdragon 8 Gen1"   ;;
+    *"0xd46"*"0xd4d"*"0xd4e"*)            CPU_BRAND="Qualcomm Snapdragon 8 Gen2"   ;;
+    *"0xd80"*"0xd81"*"0xd82"*)            CPU_BRAND="Qualcomm Snapdragon 8 Gen3"   ;;
+    *"0xd84"*"0xd85"*)                    CPU_BRAND="Qualcomm Snapdragon 8 Gen4"   ;;
+    *"0xd46"*"0xd47"*)                    CPU_BRAND="MediaTek Dimensity 1200"      ;;
+    *"0xd05"*"0xd47"*"0xd48"*)            CPU_BRAND="MediaTek Dimensity 9000"      ;;
   esac
   [ "$CPU_BRAND" != "Unknown SoC" ] && return
 
-  # ── PASS 5: last resort — use raw string ───────────────
+  # ── PASS 5: last resort raw string ────────────────────
   local any="${hw_field:-${raw:-$dt_model}}"
   [ -n "$any" ] && CPU_BRAND="$any"
 }
@@ -326,7 +344,6 @@ detect_clusters() {
       idx=$((idx+1))
     done <<< "$sorted"
   else
-    # Fallback: group by max freq
     declare -A freq_count
     for ff in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/cpuinfo_max_freq; do
       [ -f "$ff" ] || continue
