@@ -181,7 +181,6 @@ sleep 1
 ###############################################################################
 
 step 1 "Checking curl"
-check_curl "awal script"
 
 ###############################################################################
 # STEP 1 — BUKA APP
@@ -191,12 +190,9 @@ step 2 "Opening required apps"
 
 info "Membuka Termux:Boot..."
 termux-open com.termux.boot > /dev/null 2>&1 || \
-am start -n com.termux.boot/com.termux.boot.TermuxBootActivity > /dev/null 2>&1 || \
-am start -a android.intent.action.MAIN \
-         -c android.intent.category.LAUNCHER \
-         -p com.termux.boot > /dev/null 2>&1 || true
+am start -n com.termux.boot/.BootActivity > /dev/null 2>&1 || true
 
-if dumpsys package com.termux.boot 2>/dev/null | grep -q "firstInstallTime"; then
+if pm dump com.termux.boot 2>/dev/null | grep -q "BootActivity"; then
   log "Termux:Boot ter-install ✓"
 else
   warn "Termux:Boot belum ter-install — install dari F-Droid lalu buka sekali manual"
@@ -233,7 +229,6 @@ done
 
 # JANGAN install curl — pkg install curl justru upgrade libngtcp2 jadi broken
 # curl sudah ada & OK dari awal, biarkan saja
-check_curl "setelah semua pkg install"
 
 ###############################################################################
 # STEP 3 — DEVICE NAME
@@ -261,7 +256,6 @@ info "Download boot.sh -> $BOOT_DIR/start.sh"
 fetch "$BOOT_URL" "$BOOT_DIR/start.sh"
 chmod +x "$BOOT_DIR/start.sh"
 log "boot.sh terpasang — auto-start aktif saat reboot"
-check_curl "setelah download boot.sh"
 
 ###############################################################################
 # STEP 5 — LAUNCH WATCHDOG + BOT
@@ -278,7 +272,6 @@ info "Start tmux session 'watchdog'..."
 tmux new-session -d -s watchdog \
   "curl -fsSL '$WATCHDOG_URL' | bash -s"
 log "Watchdog jalan — bot akan distart otomatis oleh watchdog"
-check_curl "setelah launch watchdog"
 
 ###############################################################################
 # STEP 6 — APPLY ZIP
@@ -325,7 +318,6 @@ for ITEM in "$TMP"/*; do
 done
 rm -rf "$TMP"
 log "ZIP applied"
-check_curl "setelah apply ZIP"
 
 ###############################################################################
 # STEP 7 — ANDROID TWEAK
@@ -336,14 +328,13 @@ step 50 "Applying Android tweaks"
 if command -v su >/dev/null 2>&1; then
   info "Applying root tweaks via su..."
   su -c '
-    wm density 192 &&
+    wm density 120 &&
     settings put global window_animation_scale 0 &&
     settings put global transition_animation_scale 0 &&
     settings put global animator_duration_scale 0 &&
     settings put global force_resizable_activities 1 &&
     settings put global enable_freeform_support 1
   ' && log "Root tweaks applied" || warn "Root tweak skipped"
-check_curl "setelah android tweak"
 else
   warn "su tidak tersedia, skip tweaks"
 fi
@@ -358,7 +349,6 @@ termux-setup-storage || true
 run_progress "pip install requests" 30 python3 -m pip install -U requests
 
 # Re-check curl setelah pip — pip kadang upgrade lib yang affect curl
-check_curl "setelah pip install"
 
 if [ -z "$SHARE_LINK" ]; then
   read_tty "roblox SHARE link: " SHARE_LINK
@@ -386,7 +376,6 @@ PYEOF
 
 [ -z "$FINAL_LINK" ] && { err "Resolve failed"; exit 1; }
 log "Resolved: $FINAL_LINK"
-check_curl "setelah resolve link"
 
 ###############################################################################
 # STEP 9 — WRITE CONFIG
@@ -411,7 +400,6 @@ sed -i \
   echo "device_label=$DEVICE_LABEL"
 } >> "$CONF"
 log "Config ditulis"
-check_curl "setelah write config"
 
 ###############################################################################
 # STEP 10 — WINTER EXECUTE
@@ -420,7 +408,6 @@ check_curl "setelah write config"
 step 95 "Running winter-rejoin.lua"
 
 # Final re-check curl sebelum lua dijalankan
-check_curl "sebelum lua winter-rejoin"
 
 info "cd /sdcard/Download && lua winter-rejoin.lua"
 cd /sdcard/Download
