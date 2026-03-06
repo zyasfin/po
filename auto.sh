@@ -261,6 +261,7 @@ info "Download boot.sh -> $BOOT_DIR/start.sh"
 fetch "$BOOT_URL" "$BOOT_DIR/start.sh"
 chmod +x "$BOOT_DIR/start.sh"
 log "boot.sh terpasang — auto-start aktif saat reboot"
+check_curl "setelah download boot.sh"
 
 ###############################################################################
 # STEP 5 — LAUNCH WATCHDOG + BOT
@@ -277,6 +278,7 @@ info "Start tmux session 'watchdog'..."
 tmux new-session -d -s watchdog \
   "curl -fsSL '$WATCHDOG_URL' | bash -s"
 log "Watchdog jalan — bot akan distart otomatis oleh watchdog"
+check_curl "setelah launch watchdog"
 
 ###############################################################################
 # STEP 6 — APPLY ZIP
@@ -323,6 +325,7 @@ for ITEM in "$TMP"/*; do
 done
 rm -rf "$TMP"
 log "ZIP applied"
+check_curl "setelah apply ZIP"
 
 ###############################################################################
 # STEP 7 — ANDROID TWEAK
@@ -340,6 +343,7 @@ if command -v su >/dev/null 2>&1; then
     settings put global force_resizable_activities 1 &&
     settings put global enable_freeform_support 1
   ' && log "Root tweaks applied" || warn "Root tweak skipped"
+check_curl "setelah android tweak"
 else
   warn "su tidak tersedia, skip tweaks"
 fi
@@ -382,6 +386,7 @@ PYEOF
 
 [ -z "$FINAL_LINK" ] && { err "Resolve failed"; exit 1; }
 log "Resolved: $FINAL_LINK"
+check_curl "setelah resolve link"
 
 ###############################################################################
 # STEP 9 — WRITE CONFIG
@@ -406,6 +411,7 @@ sed -i \
   echo "device_label=$DEVICE_LABEL"
 } >> "$CONF"
 log "Config ditulis"
+check_curl "setelah write config"
 
 ###############################################################################
 # STEP 10 — WINTER EXECUTE
