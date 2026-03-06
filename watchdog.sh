@@ -1,14 +1,13 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ================================================================
 # watchdog.sh — Monitor & auto-restart bot kalau crash
-# Dijalankan otomatis oleh boot.sh, atau manual:
-#   bash watchdog.sh
+# Dijalankan otomatis oleh boot.sh / auto.sh
 # ================================================================
 
 BOT_URL="https://raw.githubusercontent.com/zyasfin/po/refs/heads/main/bot.sh"
 BOT_SESSION="bot"
-CHECK_INTERVAL=5       # cek tiap 5 detik
-RESTART_DELAY=3        # tunggu 3 detik sebelum restart
+CHECK_INTERVAL=300     # cek tiap 5 menit
+RESTART_DELAY=5        # tunggu 5 detik sebelum restart
 LOG_FILE="$HOME/.rootbot_watchdog.log"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -36,7 +35,7 @@ start_bot() {
     is_bot_alive
 }
 
-# ── Wake lock untuk watchdog ──────────────────────────────────────
+# ── Wake lock ────────────────────────────────────────────────────
 if command -v termux-wake-lock &>/dev/null; then
     termux-wake-lock 2>/dev/null &
 fi
@@ -51,21 +50,21 @@ trap cleanup SIGINT SIGTERM
 
 # ── Banner ────────────────────────────────────────────────────────
 echo -e "${CYAN}"
-echo "  ┌─────────────────────────────┐"
-echo "  │  🐕 WATCHDOG aktif          │"
-echo "  │  Check tiap ${CHECK_INTERVAL}s               │"
-echo "  │  Ctrl+C untuk stop          │"
-echo "  └─────────────────────────────┘"
+echo "  ┌──────────────────────────────┐"
+echo "  │  🐕 WATCHDOG aktif           │"
+echo "  │  Check tiap 5 menit          │"
+echo "  │  Ctrl+C untuk stop           │"
+echo "  └──────────────────────────────┘"
 echo -e "${NC}"
-wlog "$CYAN" "WATCHDOG" "Memulai, target session: '$BOT_SESSION'"
+wlog "$CYAN" "WATCHDOG" "Memulai — target session: '$BOT_SESSION'"
 
 # ── Start bot pertama kali ────────────────────────────────────────
 if ! is_bot_alive; then
     wlog "$YELLOW" "WATCHDOG" "Bot belum jalan, start sekarang..."
     if start_bot; then
-        wlog "$GREEN" "WATCHDOG" "Bot berhasil distart (session: $BOT_SESSION)"
+        wlog "$GREEN" "WATCHDOG" "Bot berhasil distart"
     else
-        wlog "$RED" "WATCHDOG" "Gagal start bot, akan retry di loop"
+        wlog "$RED" "WATCHDOG" "Gagal start bot, akan retry"
     fi
 else
     wlog "$GREEN" "WATCHDOG" "Bot sudah jalan di session '$BOT_SESSION'"
@@ -77,14 +76,15 @@ while true; do
 
     if ! is_bot_alive; then
         restart_count=$((restart_count + 1))
-        wlog "$YELLOW" "WATCHDOG" "⚠ Bot mati terdeteksi! Restart #${restart_count}"
-        wlog "$YELLOW" "WATCHDOG" "Restart dalam ${RESTART_DELAY}s..."
+        wlog "$YELLOW" "WATCHDOG" "⚠ Bot mati! Restart #${restart_count}"
         sleep $RESTART_DELAY
 
         if start_bot; then
-            wlog "$GREEN" "WATCHDOG" "✓ Bot restart berhasil (#${restart_count})"
+            wlog "$GREEN" "WATCHDOG" "✓ Restart berhasil (#${restart_count})"
         else
-            wlog "$RED" "WATCHDOG" "✗ Restart gagal, retry di iterasi berikutnya"
+            wlog "$RED" "WATCHDOG" "✗ Restart gagal, retry 5 menit lagi"
         fi
+    else
+        wlog "$GREEN" "WATCHDOG" "Bot OK ✓"
     fi
 done
