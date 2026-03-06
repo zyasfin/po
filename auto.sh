@@ -1,11 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/bash
-trap 'echo -e "\n\n💥 FATAL ERROR di baris $LINENO — exit code $?" >&2' ERR
+set -e
 
 ###############################################################################
 # ARGUMENT + DEFAULT
 ###############################################################################
 
 DEFAULT_ZIP="/storage/emulated/0/DELTA.zip"
+DEFAULT_DEVICE=""
+DEFAULT_LINK=""
+
 DEVICE_LABEL=""
 SHARE_LINK=""
 ZIP="$DEFAULT_ZIP"
@@ -20,48 +23,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 ###############################################################################
-# SMART ZIP PATH RESOLUTION
-###############################################################################
-
-resolve_zip() {
-  local input="$1"
-  local basename_zip
-  basename_zip="$(basename "$input")"
-
-  local candidates=(
-    "$input"
-    "/storage/emulated/0/$basename_zip"
-    "/sdcard/$basename_zip"
-    "/storage/emulated/0/Download/$basename_zip"
-    "$HOME/$basename_zip"
-  )
-
-  for candidate in "${candidates[@]}"; do
-    if [ -f "$candidate" ]; then
-      echo "$candidate"
-      return 0
-    fi
-  done
-
-  echo ""
-  return 1
-}
-
-RESOLVED_ZIP="$(resolve_zip "$ZIP")" || true
-
-if [ -z "$RESOLVED_ZIP" ]; then
-  echo -e "\n❌ ZIP tidak ditemukan! Sudah dicari di:"
-  echo "   • $ZIP"
-  echo "   • /storage/emulated/0/$(basename "$ZIP")"
-  echo "   • /sdcard/$(basename "$ZIP")"
-  echo "   • /storage/emulated/0/Download/$(basename "$ZIP")"
-  exit 1
-fi
-
-ZIP="$RESOLVED_ZIP"
-
-###############################################################################
-# PATH CONFIG (ASLI TETAP)
+# PATH CONFIG
 ###############################################################################
 
 STORAGE="/storage/emulated/0"
@@ -74,6 +36,10 @@ CONF="$STORAGE/Download/WinterHub/auto_rejoin.conf"
 
 TTY="/dev/tty"
 LOGF="/data/data/com.termux/files/usr/tmp/auto_install.log"
+
+BOT_URL="https://raw.githubusercontent.com/zyasfin/po/refs/heads/main/bot.sh"
+WATCHDOG_URL="https://raw.githubusercontent.com/zyasfin/po/refs/heads/main/watchdog.sh"
+BOOT_URL="https://raw.githubusercontent.com/zyasfin/po/refs/heads/main/boot.sh"
 
 ###############################################################################
 # UI BATTERY PROGRESS
@@ -98,7 +64,7 @@ step() {
 }
 
 ###############################################################################
-# ORIGINAL HELPER FUNCTION (TETAP)
+# HELPER
 ###############################################################################
 
 log(){ echo -e "\n[+] $*"; }
@@ -117,78 +83,39 @@ read_tty() {
   printf -v "$__var" "%s" "$val"
 }
 
-run() {
-  local title="$1"; shift
-  mkdir -p "$(dirname "$LOGF")"
-  : > "$LOGF"
-  echo -n "[*] $title... "
-  ("$@") >>"$LOGF" 2>&1 &
-  local pid=$!
-  local spin='-\|/'
-  local i=0
-  while kill -0 "$pid" 2>/dev/null; do
-    printf "\b%s" "${spin:i++%4:1}"
-    sleep 0.12
-  done
-  wait "$pid"
-  local rc=$?
-  if [ $rc -eq 0 ]; then
-    printf "\b✅\n"
-  else
-    printf "\b❌\n"
-    tail -n 60 "$LOGF" || true
-    return $rc
-  fi
-}
-
-###############################################################################
-# DYNAMIC PROGRESS — bounce bar + spinner + elapsed timer
-###############################################################################
-
 run_progress() {
   local title="$1"
   local est="$2"
   shift 2
-
   mkdir -p "$(dirname "$LOGF")"
   : > "$LOGF"
-
   ("$@") >>"$LOGF" 2>&1 &
   local pid=$!
-
   local elapsed=0
   local pos=0
   local dir=1
   local BAR_W=18
   local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
   local fi=0
-
   printf "\n"
-
   while kill -0 "$pid" 2>/dev/null; do
     local bar=""
     for ((col=0; col<BAR_W; col++)); do
       if [ $col -eq $pos ]; then bar+="▓"; else bar+="░"; fi
     done
-
     local sp="${frames[$((fi % ${#frames[@]}))]}"
     fi=$((fi+1))
-
     local mins=$(( elapsed / 60 ))
     local secs=$(( elapsed % 60 ))
     printf "\r  %s [%s] %02d:%02d  %-30s" "$sp" "$bar" "$mins" "$secs" "$title"
-
     pos=$((pos + dir))
     if [ $pos -ge $((BAR_W-1)) ]; then dir=-1; fi
     if [ $pos -le 0 ];            then dir=1;  fi
-
     elapsed=$((elapsed+1))
     sleep 0.18
   done
-
   wait "$pid"
   local rc=$?
-
   if [ $rc -eq 0 ]; then
     printf "\r  ✅ %-50s  %02d:%02d\n" "$title" "$((elapsed/60))" "$((elapsed%60))"
   else
@@ -198,60 +125,82 @@ run_progress() {
   fi
 }
 
-# Fungsi download yang otomatis fallback wget jika curl rusak
-fetch_url() {
-  local url="$1"
-  local outfile="$2"
-  if curl -fsSL --max-time 30 "$url" -o "$outfile" 2>/dev/null; then
-    return 0
-  fi
-  warn "curl gagal, fallback ke wget..."
-  wget -qO "$outfile" "$url" 2>/dev/null
-}
-
 clear
 echo "AUTO INSTALLER PRO MODE"
-echo "📦 ZIP: $ZIP"
 sleep 1
 
 ###############################################################################
-# STEP 0 — DEPENDENCY + TMUX BOT
-# Pakai wget (bukan curl) untuk download bot — wget tidak kena SSL mismatch issue
+# STEP 0 — BUKA APP (background, selagi install jalan)
+###############################################################################
+
+step 2 "Opening required apps"
+
+# Buka Termux:Boot — perlu dibuka sekali agar permission boot aktif
+am start -n com.termux.boot/.TermuxBootActivity > /dev/null 2>&1 || \
+am start -a android.intent.action.MAIN -p com.termux.boot > /dev/null 2>&1 || \
+monkey -p com.termux.boot -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1 || \
+warn "Termux:Boot tidak ditemukan — install dari F-Droid lalu jalankan sekali manual"
+
+sleep 2
+
+# Buka com.rootbot kalau ada
+am start -n com.rootbot/.MainActivity > /dev/null 2>&1 || \
+am start -a android.intent.action.MAIN -p com.rootbot > /dev/null 2>&1 || true
+
+sleep 1
+
+###############################################################################
+# STEP 1 — DEPENDENCY + BOT + WATCHDOG + BOOT
 ###############################################################################
 
 step 5 "Installing dependencies"
-run_progress "pkg install deps" 60 \
-  bash -c 'pkg install -y tmux tesseract termux-api python lua53 sqlite sed unzip wget 2>&1'
+pkg update -y > /dev/null 2>&1
+# tesseract dihapus — bot versi ini tidak pakai OCR
+pkg install -y tmux termux-api python lua53 sqlite sed unzip curl > /dev/null 2>&1
 
-# Termux install python sebagai "python" bukan "python3"
-# Buat symlink supaya python3 works
-if ! command -v python3 >/dev/null 2>&1 && command -v python >/dev/null 2>&1; then
-  ln -sf "$(command -v python)" "$PREFIX/bin/python3" 2>/dev/null || true
-fi
-# Sama untuk pip3
-if ! command -v pip3 >/dev/null 2>&1 && command -v pip >/dev/null 2>&1; then
-  ln -sf "$(command -v pip)" "$PREFIX/bin/pip3" 2>/dev/null || true
+step 10 "Saving device name"
+
+if [ -z "$DEVICE_LABEL" ]; then
+  read_tty "device_label (contoh: L05): " DEVICE_LABEL
 fi
 
-step 15 "Launching background bot"
+CONFIG_FILE="$HOME/.rootbot_config"
+echo "DEVICE_NAME=$DEVICE_LABEL" > "$CONFIG_FILE"
+log "Device name disimpan ke $CONFIG_FILE"
 
-tmux kill-session -t bot 2>/dev/null || true
-# PAKAI WGET bukan curl — ini kunci supaya tidak kena SSL_set_quic_tls_transport_params error
-tmux new-session -d -s bot \
-  "wget -qO- https://raw.githubusercontent.com/zyasfin/po/refs/heads/main/bot.sh | bash -s -- --device '${DEVICE_LABEL:-UNKNOWN}'"
+step 15 "Setting up Termux:Boot"
+
+BOOT_DIR="$HOME/.termux/boot"
+mkdir -p "$BOOT_DIR"
+curl -fsSL "$BOOT_URL" -o "$BOOT_DIR/start.sh"
+chmod +x "$BOOT_DIR/start.sh"
+log "boot.sh terpasang di $BOOT_DIR/start.sh (auto-start saat reboot)"
+
+step 20 "Launching watchdog + bot"
+
+# Kill session lama kalau ada
+tmux kill-session -t watchdog 2>/dev/null || true
+tmux kill-session -t bot      2>/dev/null || true
+sleep 1
+
+# Watchdog yang akan start & jaga bot secara otomatis
+tmux new-session -d -s watchdog \
+  "curl -fsSL '$WATCHDOG_URL' | bash -s"
+
+log "Watchdog jalan di tmux session 'watchdog'"
+log "Bot akan distart otomatis oleh watchdog"
 
 ###############################################################################
-# STEP 1 — APPLY ZIP (ASLI TETAP)
+# STEP 1 — APPLY ZIP
 ###############################################################################
 
-step 25 "Applying ZIP package"
+step 35 "Applying ZIP package"
 
 [ -f "$ZIP" ] || { echo "ZIP not found: $ZIP"; exit 1; }
 
 rm -rf "$TMP"
 mkdir -p "$TMP"
-
-run_progress "Extracting ZIP" 15 unzip -q "$ZIP" -d "$TMP"
+unzip -q "$ZIP" -d "$TMP"
 
 shopt -s nullglob
 for ITEM in "$TMP"/*; do
@@ -274,14 +223,14 @@ done
 rm -rf "$TMP"
 
 ###############################################################################
-# STEP 2 — ANDROID TWEAK (ASLI)
+# STEP 2 — ANDROID TWEAK
 ###############################################################################
 
-step 40 "Applying Android tweaks"
+step 50 "Applying Android tweaks"
 
 if command -v su >/dev/null 2>&1; then
   su -c '
-    wm density 192 &&
+    wm density 120 &&
     settings put global window_animation_scale 0 &&
     settings put global transition_animation_scale 0 &&
     settings put global animator_duration_scale 0 &&
@@ -292,84 +241,46 @@ fi
 
 ###############################################################################
 # STEP 3 — RESOLVE LINK
-# Pakai python requests (sama seperti auto_dodi.sh yang tidak pernah error)
-# BUKAN curl — ini kenapa auto_dodi.sh aman
 ###############################################################################
 
-step 55 "Preparing Python resolve"
+step 60 "Preparing Python resolve"
 
 termux-setup-storage || true
-run_progress "pip install requests" 20 python -m pip install -U requests
-
-if [ -z "$DEVICE_LABEL" ]; then
-  read_tty "device_label (contoh: L05): " DEVICE_LABEL
-fi
+run_progress "pip install requests" 30 python3 -m pip install -U requests
 
 if [ -z "$SHARE_LINK" ]; then
   read_tty "roblox SHARE link: " SHARE_LINK
 fi
 
-step 65 "Resolving Roblox link"
+step 70 "Resolving Roblox link"
 
-FINAL_LINK="$(python -c '
+FINAL_LINK="$(python3 - <<PYEOF
 import re, sys, time, requests
-
-url = sys.argv[1].strip()
-IOS_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
-          "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
-          "Mobile/15E148 Safari/604.1")
-
-games_re = re.compile(r"https?://www\.roblox\.com/games/\d+[^\"'\''\s]*privateServerLinkCode=[A-Za-z0-9]+")
-games_path_re = re.compile(r"/games/\d+[^\"'\''\s]*privateServerLinkCode=[A-Za-z0-9]+")
-
-s = requests.Session()
-s.headers.update({
-  "User-Agent": IOS_UA,
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.9",
-  "Connection": "close",
-})
-
-def attempt(u):
-  r = s.get(u, allow_redirects=True, timeout=25)
-  final = str(r.url)
-  if "roblox.com/games/" in final and "privateServerLinkCode=" in final:
-    return final
-  html = r.text or ""
-  m = games_re.search(html)
-  if m:
-    return m.group(0)
-  m2 = games_path_re.search(html)
-  if m2:
-    return "https://www.roblox.com" + m2.group(0)
-  return None
-
-out = None
+url = "$SHARE_LINK"
+IOS_UA=("Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
+"Mobile/15E148 Safari/604.1")
+games_re=re.compile(r"https?://www\.roblox\.com/games/\d+[^\"'\s]*privateServerLinkCode=[A-Za-z0-9]+")
+s=requests.Session()
+s.headers.update({"User-Agent":IOS_UA})
 for _ in range(5):
   try:
-    out = attempt(url)
-    if out:
-      print(out)
-      raise SystemExit(0)
-  except SystemExit:
-    raise
-  except Exception:
-    pass
-  time.sleep(1)
-
-print("")
-' "$SHARE_LINK")"
+    r=s.get(url,allow_redirects=True,timeout=20)
+    if "privateServerLinkCode=" in r.url:
+      print(r.url);break
+  except: time.sleep(1)
+PYEOF
+)"
 
 [ -z "$FINAL_LINK" ] && { echo "Resolve failed"; exit 1; }
 
 ###############################################################################
-# WRITE CONFIG (ASLI)
+# WRITE CONFIG
 ###############################################################################
 
-step 80 "Writing config"
+step 85 "Writing config"
 
 mkdir -p "$(dirname "$CONF")"
-touch "$CONF"
 
 sed -i \
   -e '/^shared_links_count=/d' \
@@ -386,7 +297,7 @@ sed -i \
 } >> "$CONF"
 
 ###############################################################################
-# STEP 4 — WINTER EXECUTE (ASLI)
+# STEP 4 — WINTER EXECUTE
 ###############################################################################
 
 step 95 "Running winter-rejoin.lua"
@@ -401,5 +312,8 @@ lua winter-rejoin.lua </dev/null
 step 100 "ALL DONE ✅"
 
 echo ""
-echo "Bot running in tmux session: bot"
-echo "Attach with: tmux attach -t bot"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo " Bot     → tmux attach -t bot"
+echo " Watchdog→ tmux attach -t watchdog"
+echo " Reboot  → auto-start via Termux:Boot ✓"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
