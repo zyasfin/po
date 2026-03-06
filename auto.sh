@@ -223,6 +223,16 @@ step 5 "Installing dependencies"
 run_progress "pkg install deps" 60 \
   bash -c 'pkg install -y tmux tesseract termux-api python lua53 sqlite sed unzip wget 2>&1'
 
+# Termux install python sebagai "python" bukan "python3"
+# Buat symlink supaya python3 works
+if ! command -v python3 >/dev/null 2>&1 && command -v python >/dev/null 2>&1; then
+  ln -sf "$(command -v python)" "$PREFIX/bin/python3" 2>/dev/null || true
+fi
+# Sama untuk pip3
+if ! command -v pip3 >/dev/null 2>&1 && command -v pip >/dev/null 2>&1; then
+  ln -sf "$(command -v pip)" "$PREFIX/bin/pip3" 2>/dev/null || true
+fi
+
 step 15 "Launching background bot"
 
 tmux kill-session -t bot 2>/dev/null || true
@@ -271,7 +281,7 @@ step 40 "Applying Android tweaks"
 
 if command -v su >/dev/null 2>&1; then
   su -c '
-    wm density 120 &&
+    wm density 192 &&
     settings put global window_animation_scale 0 &&
     settings put global transition_animation_scale 0 &&
     settings put global animator_duration_scale 0 &&
@@ -289,7 +299,7 @@ fi
 step 55 "Preparing Python resolve"
 
 termux-setup-storage || true
-run_progress "pip install requests" 20 python3 -m pip install -U requests
+run_progress "pip install requests" 20 python -m pip install -U requests
 
 if [ -z "$DEVICE_LABEL" ]; then
   read_tty "device_label (contoh: L05): " DEVICE_LABEL
@@ -301,7 +311,7 @@ fi
 
 step 65 "Resolving Roblox link"
 
-FINAL_LINK="$(python3 -c '
+FINAL_LINK="$(python -c '
 import re, sys, time, requests
 
 url = sys.argv[1].strip()
@@ -393,4 +403,3 @@ step 100 "ALL DONE ✅"
 echo ""
 echo "Bot running in tmux session: bot"
 echo "Attach with: tmux attach -t bot"
-
