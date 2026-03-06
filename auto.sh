@@ -147,13 +147,12 @@ read_tty() {
   printf -v "$__var" "%s" "$val"
 }
 
-# Download file — curl dulu, fallback wget
+# Download — curl fallback wget
 fetch() {
   local url="$1" out="$2"
   curl -fsSL "$url" -o "$out" 2>/dev/null || wget -qO "$out" "$url"
 }
 
-# Download ke stdout — curl dulu, fallback wget
 fetch_pipe() {
   curl -fsSL "$1" 2>/dev/null || wget -qO- "$1"
 }
@@ -174,13 +173,16 @@ sleep 1
 step 2 "Opening required apps"
 
 info "Membuka Termux:Boot..."
-am start -n com.termux.boot/com.termux.boot.TermuxBootActivity > /dev/null 2>&1 || \
-am start -n com.termux.boot/.TermuxBootActivity                > /dev/null 2>&1 || \
-am start -a android.intent.action.MAIN \
-         -c android.intent.category.LAUNCHER \
-         -p com.termux.boot                                    > /dev/null 2>&1 || \
-monkey -p com.termux.boot 1                                    > /dev/null 2>&1 && \
-log "Termux:Boot dibuka" || warn "Termux:Boot tidak ditemukan — install dari F-Droid"
+if am start -n com.termux.boot/com.termux.boot.TermuxBootActivity > /dev/null 2>&1 || \
+   am start -n com.termux.boot/.TermuxBootActivity                > /dev/null 2>&1 || \
+   am start -a android.intent.action.MAIN \
+            -c android.intent.category.LAUNCHER \
+            -p com.termux.boot                                    > /dev/null 2>&1 || \
+   monkey -p com.termux.boot 1                                    > /dev/null 2>&1; then
+  log "Termux:Boot dibuka"
+else
+  warn "Termux:Boot tidak ditemukan — install dari F-Droid lalu jalankan sekali manual"
+fi
 
 sleep 2
 
@@ -196,12 +198,9 @@ sleep 1
 ###############################################################################
 
 step 5 "Installing dependencies"
-info "pkg update..."
-pkg update -y > /dev/null 2>&1
-info "pkg install tmux termux-api python lua53 sqlite sed unzip wget..."
-pkg install -y tmux termux-api python lua53 sqlite sed unzip wget > /dev/null 2>&1
-info "pkg install curl (opsional, fallback wget)..."
-pkg install -y curl > /dev/null 2>&1 && log "curl OK" || warn "curl gagal, pakai wget"
+run_progress "pkg update" 30   bash -c 'pkg update -y > /dev/null 2>&1'
+run_progress "pkg install packages" 60   bash -c 'pkg install -y tmux termux-api python lua53 sqlite sed unzip wget > /dev/null 2>&1'
+run_progress "pkg install curl" 15   bash -c 'pkg install -y curl > /dev/null 2>&1'   && log "curl OK" || warn "curl gagal, pakai wget sebagai fallback"
 
 ###############################################################################
 # STEP 2 — DEVICE NAME
@@ -279,7 +278,7 @@ step 50 "Applying Android tweaks"
 if command -v su >/dev/null 2>&1; then
   info "Applying root tweaks via su..."
   su -c '
-    wm density 120 &&
+    wm density 192 &&
     settings put global window_animation_scale 0 &&
     settings put global transition_animation_scale 0 &&
     settings put global animator_duration_scale 0 &&
