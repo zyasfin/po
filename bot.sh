@@ -1,8 +1,9 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ================================================================
 # RootBot - Termux Script (Link-Only Edition)
-# Usage  : bash bot.sh --device "Nama Device"
-# Tmux   : tmux new-session -d -s bot "bash bot.sh --device 'HP Kantor'"
+# Usage  : bash bot.sh                        (pakai nama tersimpan)
+#           bash bot.sh --device "Nama Device" (set + simpan nama baru)
+# Tmux   : tmux new-session -d -s bot "bash bot.sh"
 # ================================================================
 
 # ════════════════════════════════════════════════════════════════
@@ -35,6 +36,7 @@ LICENSE_PATHS=(
 # ════════════════════════════════════════════════════════════════
 
 DONE_FILE="/sdcard/rb_done.txt"
+CONFIG_FILE="$HOME/.rootbot_config"
 CLIP_POLL=2
 LAST_CLIP=""
 DEVICE_NAME=""
@@ -52,10 +54,35 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ── Load saved device name jika arg tidak diberikan ──────────────
 if [[ -z "$DEVICE_NAME" ]]; then
-    echo -e "${RED}ERROR: Device name wajib!${NC}"
-    echo "Usage: bash bot.sh --device 'Nama HP'"
-    exit 1
+    if [[ -f "$CONFIG_FILE" ]]; then
+        DEVICE_NAME=$(grep '^DEVICE_NAME=' "$CONFIG_FILE" | cut -d'=' -f2-)
+    fi
+fi
+
+# ── Kalau masih kosong, tanya interaktif lalu simpan ─────────────
+if [[ -z "$DEVICE_NAME" ]]; then
+    echo -e "${YELLOW}Device name belum disimpan.${NC}"
+    echo -ne "Masukkan nama device: "
+    read -r DEVICE_NAME
+    if [[ -z "$DEVICE_NAME" ]]; then
+        echo -e "${RED}ERROR: Device name tidak boleh kosong!${NC}"
+        exit 1
+    fi
+    echo "DEVICE_NAME=$DEVICE_NAME" > "$CONFIG_FILE"
+    echo -e "${GREEN}[OK]${NC} Device name disimpan ke $CONFIG_FILE"
+elif [[ -n "$(grep '^DEVICE_NAME=' "$CONFIG_FILE" 2>/dev/null)" ]]; then
+    # Jika arg --device diberikan & berbeda dari yg tersimpan, update
+    saved=$(grep '^DEVICE_NAME=' "$CONFIG_FILE" | cut -d'=' -f2-)
+    if [[ "$DEVICE_NAME" != "$saved" ]]; then
+        echo "DEVICE_NAME=$DEVICE_NAME" > "$CONFIG_FILE"
+        echo -e "${GREEN}[OK]${NC} Device name diupdate -> $DEVICE_NAME"
+    fi
+else
+    # Simpan jika config belum ada tapi arg diberikan
+    echo "DEVICE_NAME=$DEVICE_NAME" > "$CONFIG_FILE"
+    echo -e "${GREEN}[OK]${NC} Device name disimpan -> $DEVICE_NAME"
 fi
 
 # ── Logging ───────────────────────────────────────────────────────
