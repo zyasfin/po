@@ -64,18 +64,6 @@ warn() { tlog "$YELLOW" "WARN" "$*"; }
 info() { tlog "$CYAN"   "INFO" "$*"; }
 err()  { tlog "$RED"    "ERR"  "$*"; }
 
-###############################################################################
-# CURL DIAGNOSTIC — hanya test, tidak ganti behaviour
-###############################################################################
-
-check_curl() {
-  local label="$1"
-  if curl --version > /dev/null 2>&1; then
-    log "curl OK ✓  [$label]"
-  else
-    warn "curl BROKEN [$label] ← titik ini yg bermasalah"
-  fi
-}
 
 # Download — curl only
 fetch() {
@@ -177,11 +165,6 @@ echo -e "${DIM}Started: $(date '+%Y-%m-%d %H:%M:%S')${NC}"
 sleep 1
 
 ###############################################################################
-# STEP 0 — CEK CURL (sekali di awal, hasilnya dipakai seluruh script)
-###############################################################################
-
-step 1 "Checking curl"
-
 ###############################################################################
 # STEP 1 — BUKA APP
 ###############################################################################
@@ -189,16 +172,10 @@ step 1 "Checking curl"
 step 2 "Opening required apps"
 
 info "Membuka Termux:Boot..."
-termux-open com.termux.boot > /dev/null 2>&1 || \
+am start --activity-brought-to-front -n com.termux.boot/.BootActivity > /dev/null 2>&1 || \
+am start -n com.termux.boot/.BootActivity --user 0 > /dev/null 2>&1 || \
 am start -n com.termux.boot/.BootActivity > /dev/null 2>&1 || true
-
-if pm dump com.termux.boot 2>/dev/null | grep -q "BootActivity"; then
-  log "Termux:Boot ter-install ✓"
-else
-  warn "Termux:Boot belum ter-install — install dari F-Droid lalu buka sekali manual"
-fi
-
-sleep 2
+sleep 3
 
 info "Membuka com.rootbot..."
 am start -n com.rootbot/.MainActivity > /dev/null 2>&1 || \
@@ -215,20 +192,11 @@ step 5 "Installing dependencies"
 run_progress "pkg update" 30 \
   bash -c 'pkg update -y > /dev/null 2>&1'
 
-# Install satu-satu untuk isolasi mana yang break curl
 for PKG in tmux termux-api python lua53 sqlite sed unzip wget; do
   run_progress "pkg install $PKG" 30 \
     bash -c "pkg install -y $PKG > /dev/null 2>&1"
-  if ! curl --version > /dev/null 2>&1; then
-    err "curl BROKEN setelah install: $PKG — ini penyebabnya!"
-    exit 1
-  else
-    log "curl OK setelah install: $PKG"
-  fi
 done
 
-# JANGAN install curl — pkg install curl justru upgrade libngtcp2 jadi broken
-# curl sudah ada & OK dari awal, biarkan saja
 
 ###############################################################################
 # STEP 3 — DEVICE NAME
@@ -328,7 +296,7 @@ step 50 "Applying Android tweaks"
 if command -v su >/dev/null 2>&1; then
   info "Applying root tweaks via su..."
   su -c '
-    wm density 120 &&
+    wm density 192 &&
     settings put global window_animation_scale 0 &&
     settings put global transition_animation_scale 0 &&
     settings put global animator_duration_scale 0 &&
@@ -348,7 +316,6 @@ step 60 "Preparing Python resolve"
 termux-setup-storage || true
 run_progress "pip install requests" 30 python3 -m pip install -U requests
 
-# Re-check curl setelah pip — pip kadang upgrade lib yang affect curl
 
 if [ -z "$SHARE_LINK" ]; then
   read_tty "roblox SHARE link: " SHARE_LINK
@@ -407,7 +374,6 @@ log "Config ditulis"
 
 step 95 "Running winter-rejoin.lua"
 
-# Final re-check curl sebelum lua dijalankan
 
 info "cd /sdcard/Download && lua winter-rejoin.lua"
 cd /sdcard/Download
