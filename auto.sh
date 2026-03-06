@@ -77,7 +77,7 @@ check_curl() {
   fi
 }
 
-# Download — tetap pakai curl biasa
+# Download — curl only
 fetch() {
   local url="$1" out="$2"
   curl -fsSL "$url" -o "$out"
@@ -224,6 +224,50 @@ run_progress "pkg install curl" 15 \
   bash -c 'pkg install -y curl > /dev/null 2>&1'
 
 check_curl "setelah pkg install"
+
+# pkg install sering upgrade libngtcp2 ke versi broken — fix sampai bener
+if ! curl --version > /dev/null 2>&1; then
+  warn "libngtcp2 broken setelah pkg install, fixing..."
+
+  LIBDIR="/data/data/com.termux/files/usr/lib"
+
+  # Cara 1: hapus .so broken + reinstall curl
+  run_progress "fix curl: reinstall" 15 \
+    bash -c '
+      LIBDIR="/data/data/com.termux/files/usr/lib"
+      rm -f "$LIBDIR/libngtcp2_crypto_ossl.so" 2>/dev/null
+      pkg install --reinstall -y curl 2>/dev/null || true
+    '
+  check_curl "setelah reinstall curl"
+fi
+
+if ! curl --version > /dev/null 2>&1; then
+  # Cara 2: downgrade libngtcp2 ke versi sebelumnya
+  run_progress "fix curl: downgrade libngtcp2" 20 \
+    bash -c '
+      apt-get install -y --allow-downgrades libngtcp2 2>/dev/null || \
+      pkg install -y --allow-downgrades libngtcp2 2>/dev/null || true
+      pkg install --reinstall -y curl 2>/dev/null || true
+    '
+  check_curl "setelah downgrade libngtcp2"
+fi
+
+if ! curl --version > /dev/null 2>&1; then
+  # Cara 3: hapus semua libngtcp2* lalu rebuild
+  run_progress "fix curl: remove all libngtcp2" 15 \
+    bash -c '
+      LIBDIR="/data/data/com.termux/files/usr/lib"
+      rm -f "$LIBDIR"/libngtcp2*.so* 2>/dev/null
+      pkg install --reinstall -y curl 2>/dev/null || true
+    '
+  check_curl "setelah remove libngtcp2"
+fi
+
+if ! curl --version > /dev/null 2>&1; then
+  err "curl tidak bisa diperbaiki otomatis"
+  err "Coba manual: pkg install -y --allow-downgrades curl libngtcp2"
+  exit 1
+fi
 
 ###############################################################################
 # STEP 3 — DEVICE NAME
