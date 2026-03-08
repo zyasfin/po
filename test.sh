@@ -14,8 +14,8 @@ rm -rf /storage/emulated/0/Android/data/com.roblox.clienu \
   && echo "[OK] Old files deleted" \
   || echo "[FAIL] Failed to delete old files"
 
-if [ ! -f /sdcard/Download/DELTA.zip ]; then
-  echo "[FAIL] DELTA.zip not found in /sdcard/Download/"
+if [ ! -f /storage/emulated/0/DELTA.zip ]; then
+  echo "[FAIL] DELTA.zip not found in /storage/emulated/0/"
   exit 1
 fi
 
