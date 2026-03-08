@@ -19,7 +19,7 @@ if [ ! -f /sdcard/Download/DELTA.zip ]; then
   exit 1
 fi
 
-unzip /sdcard/Download/DELTA.zip \
+unzip /storage/emulated/0/DELTA.zip \
   'com.roblox.clienu/*' \
   'com.roblox.clienv/*' \
   'com.roblox.clienw/*' \
@@ -29,7 +29,7 @@ unzip /sdcard/Download/DELTA.zip \
   && echo "[OK] Roblox clients extracted" \
   || echo "[FAIL] Failed to extract Roblox clients"
 
-unzip /sdcard/Download/DELTA.zip \
+unzip /storage/emulated/0/DELTA.zip \
   'Delta/*' \
   'Download/*' \
   -d /storage/emulated/0/ \
