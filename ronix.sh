@@ -170,9 +170,28 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Pastikan storage permission ready sebelum cek ZIP
-termux-setup-storage 2>/dev/null || true
-sleep 1
+
+termux-setup-storage 2>/dev/null &
+# Jika --zip diisi tapi bukan absolute path, cari di lokasi umum
+if [ -n "$ZIP" ] && [[ "$ZIP" != /* ]]; then
+  ZIP_NAME="$ZIP"
+  ZIP=""
+  for DIR in \
+    "/storage/emulated/0" \
+    "/sdcard" \
+    "/storage/emulated/0/Download" \
+    "/sdcard/Download" \
+    "$HOME/storage/shared" \
+    "$HOME/storage/downloads"
+  do
+    if [ -f "$DIR/$ZIP_NAME" ]; then
+      ZIP="$DIR/$ZIP_NAME"
+      log "ZIP ditemukan: $ZIP"
+      break
+    fi
+  done
+  [ -z "$ZIP" ] && { echo "[!] ZIP '$ZIP_NAME' tidak ditemukan"; exit 1; }
+fi
 
 # Auto-detect ZIP jika tidak diisi via --zip
 if [ -z "$ZIP" ]; then
