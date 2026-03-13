@@ -170,6 +170,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Pastikan storage permission ready sebelum cek ZIP
+termux-setup-storage 2>/dev/null || true
+sleep 1
+
 # Auto-detect ZIP jika tidak diisi via --zip
 if [ -z "$ZIP" ]; then
   ZIP_NAME="RONIX.zip"
@@ -181,13 +185,33 @@ if [ -z "$ZIP" ]; then
     "$HOME/storage/shared" \
     "$HOME/storage/downloads"
   do
+    # Cek exact match dulu
     if [ -f "$DIR/$ZIP_NAME" ]; then
       ZIP="$DIR/$ZIP_NAME"
       log "ZIP auto-detected: $ZIP"
       break
     fi
+    # Fallback: case-insensitive search di direktori itu
+    FOUND="$(find "$DIR" -maxdepth 1 -iname "$ZIP_NAME" 2>/dev/null | head -1)"
+    if [ -n "$FOUND" ]; then
+      ZIP="$FOUND"
+      log "ZIP auto-detected: $ZIP"
+      break
+    fi
   done
-  [ -z "$ZIP" ] && { echo "[!] ZIP '$ZIP_NAME' tidak ditemukan di semua lokasi"; exit 1; }
+  if [ -z "$ZIP" ]; then
+    echo ""
+    echo "[!] ZIP '$ZIP_NAME' tidak ditemukan di:"
+    for DIR in "/storage/emulated/0" "/sdcard" "/storage/emulated/0/Download" "/sdcard/Download" "$HOME/storage/shared" "$HOME/storage/downloads"; do
+      echo "     $DIR"
+    done
+    echo ""
+    echo "    File ZIP yang ada di /sdcard:"
+    find /storage/emulated/0 /sdcard -maxdepth 2 -name "*.zip" 2>/dev/null | head -10 || echo "     (tidak ada)"
+    echo ""
+    echo "    Pakai --zip /path/ke/file.zip untuk specify manual"
+    exit 1
+  fi
 fi
 
 ###############################################################################
@@ -242,7 +266,6 @@ fi
 ###############################################################################
 log "STEP 3/4: SETUP + PYTHON RESOLVE ROBLOX SHARE LINK (WITH PROGRESS)"
 
-termux-setup-storage || true
 
 run "pkg update" pkg update -y
 install_packages python lua53 sqlite termux-api sed
