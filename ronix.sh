@@ -42,33 +42,101 @@ read_tty() {
   printf -v "$__var" "%s" "$val"
 }
 
+# Bar progress animasi
+progress_bar() {
+  local cur=$1 tot=$2
+  local width=20
+  local filled=$(( cur * width / tot ))
+  local empty=$(( width - filled ))
+  local pct=$(( cur * 100 / tot ))
+  local bar="" i
+  for (( i=0; i<filled; i++ )); do bar+="█"; done
+  for (( i=0; i<empty;  i++ )); do bar+="░"; done
+  printf "[%s] %3d%%" "$bar" "$pct"
+}
+
 run() {
   local title="$1"; shift
   mkdir -p "$(dirname "$LOGF")"
   : > "$LOGF"
 
-  echo -n "[*] $title... "
+  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  local i=0
+  printf "  %s %s " "${frames[0]}" "$title"
+
   ("$@") >>"$LOGF" 2>&1 &
   local pid=$!
 
-  local spin='-\|/'
-  local i=0
   while kill -0 "$pid" 2>/dev/null; do
-    printf "\b%s" "${spin:i++%4:1}"
-    sleep 0.12
+    printf "\r  %s %s " "${frames[i++ % ${#frames[@]}]}" "$title"
+    sleep 0.1
   done
 
   wait "$pid"
   local rc=$?
 
   if [ $rc -eq 0 ]; then
-    printf "\b✅\n"
+    printf "\r  ✅ %s\n" "$title"
   else
-    printf "\b❌\n"
+    printf "\r  ❌ %s\n" "$title"
     echo "---- LAST LOG (tail 60) ----"
     tail -n 60 "$LOGF" || true
     return $rc
   fi
+}
+
+# Install packages satu-satu, tiap package ada progress bar animasi sendiri
+install_packages() {
+  local pkgs=("$@")
+  local total=${#pkgs[@]}
+  local done_count=0
+  echo ""
+  printf "  Installing %d packages...\n\n" "$total"
+
+  for pkg in "${pkgs[@]}"; do
+    : > "$LOGF"
+    local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    local fi=0
+    local width=25
+    local fake=0   # progress palsu 0-90 selama nunggu
+    local start=$SECONDS
+
+    (pkg install -y "$pkg") >>"$LOGF" 2>&1 &
+    local pid=$!
+
+    while kill -0 "$pid" 2>/dev/null; do
+      # fake progress naik pelan, max 90 selama proses jalan
+      local elapsed=$(( SECONDS - start ))
+      fake=$(( elapsed * 3 ))
+      [ $fake -gt 90 ] && fake=90
+
+      local filled=$(( fake * width / 100 ))
+      local empty=$(( width - filled ))
+      local bar="" i
+      for (( i=0; i<filled; i++ )); do bar+="█"; done
+      for (( i=0; i<empty;  i++ )); do bar+="░"; done
+
+      printf "\r  %s %-14s  [%s] %3d%%" \
+        "${frames[fi++ % ${#frames[@]}]}" "$pkg" "$bar" "$fake"
+      sleep 0.1
+    done
+
+    wait "$pid"; local rc=$?
+    done_count=$(( done_count + 1 ))
+
+    # Selesai → bar penuh 100%
+    local bar_full=""
+    for (( i=0; i<width; i++ )); do bar_full+="█"; done
+
+    if [ $rc -eq 0 ]; then
+      printf "\r  ✅ %-14s  [%s] 100%%\n" "$pkg" "$bar_full"
+    else
+      printf "\r  ❌ %-14s  [%s] ERR\n" "$pkg" "$bar_full"
+      tail -n 10 "$LOGF" || true
+    fi
+  done
+  echo ""
+  printf "  ✅ All %d packages done\n\n" "$total"
 }
 
 ###############################################################################
@@ -177,7 +245,7 @@ log "STEP 3/4: SETUP + PYTHON RESOLVE ROBLOX SHARE LINK (WITH PROGRESS)"
 termux-setup-storage || true
 
 run "pkg update" pkg update -y
-run "install python + lua + sqlite + termux-api + sed" pkg install -y python lua53 sqlite termux-api sed
+install_packages python lua53 sqlite termux-api sed
 run "pip install requests" python3 -m pip install -U requests
 
 # Prompt interaktif hanya jika argument tidak diberikan
