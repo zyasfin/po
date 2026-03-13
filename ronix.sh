@@ -102,8 +102,25 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Default ZIP jika tidak diisi
-ZIP="${ZIP:-$STORAGE/RONIX.zip}"
+# Auto-detect ZIP jika tidak diisi via --zip
+if [ -z "$ZIP" ]; then
+  ZIP_NAME="RONIX.zip"
+  for DIR in \
+    "/storage/emulated/0" \
+    "/sdcard" \
+    "/storage/emulated/0/Download" \
+    "/sdcard/Download" \
+    "$HOME/storage/shared" \
+    "$HOME/storage/downloads"
+  do
+    if [ -f "$DIR/$ZIP_NAME" ]; then
+      ZIP="$DIR/$ZIP_NAME"
+      log "ZIP auto-detected: $ZIP"
+      break
+    fi
+  done
+  [ -z "$ZIP" ] && { echo "[!] ZIP '$ZIP_NAME' tidak ditemukan di semua lokasi"; exit 1; }
+fi
 
 ###############################################################################
 log "STEP 1/4: APPLY ZIP (PACKAGE + Delta + Download)"
