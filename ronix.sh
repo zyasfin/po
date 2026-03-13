@@ -3,10 +3,9 @@ set -e
 
 STORAGE="/storage/emulated/0"
 ANDROID_DATA="$STORAGE/Android/data"
-ZIP="$STORAGE/DODI.zip"
 TMP="$STORAGE/__delta_tmp"
 
-DELTA_OUT="$STORAGE/Delta"
+DELTA_OUT="$STORAGE/RonixExploit"
 DOWNLOAD_OUT="$STORAGE/Download"
 CONF="$STORAGE/Download/WinterHub/auto_rejoin.conf"
 
@@ -16,8 +15,21 @@ LOGF="/data/data/com.termux/files/usr/tmp/auto_install.log"
 log(){ echo -e "\n[+] $*"; }
 warn(){ echo -e "\n[!] $*"; }
 
+usage() {
+  echo "Usage: $0 [OPTIONS]"
+  echo ""
+  echo "Options:"
+  echo "  --device LABEL    Device label (contoh: L05)"
+  echo "  --zip   PATH      Path ke file ZIP (default: /sdcard/RONIX.zip)"
+  echo "  --link  URL       Roblox share link"
+  echo "  -h, --help        Tampilkan help ini"
+  echo ""
+  echo "Contoh:"
+  echo "  $0 --device L05 --zip /sdcard/RONIX.zip --link 'https://www.roblox.com/share?...'"
+  exit 0
+}
+
 read_tty() {
-  # usage: read_tty "Prompt: " VAR
   local prompt="$1"
   local __var="$2"
   local val=""
@@ -31,7 +43,6 @@ read_tty() {
 }
 
 run() {
-  # usage: run "title" command...
   local title="$1"; shift
   mkdir -p "$(dirname "$LOGF")"
   : > "$LOGF"
@@ -61,6 +72,40 @@ run() {
 }
 
 ###############################################################################
+# PARSE ARGUMENTS
+
+DEVICE_LABEL=""
+ZIP=""
+SHARE_LINK=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --device)
+      DEVICE_LABEL="$2"
+      shift 2
+      ;;
+    --zip)
+      ZIP="$2"
+      shift 2
+      ;;
+    --link)
+      SHARE_LINK="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      echo "[!] Argument tidak dikenal: $1"
+      usage
+      ;;
+  esac
+done
+
+# Default ZIP jika tidak diisi
+ZIP="${ZIP:-$STORAGE/RONIX.zip}"
+
+###############################################################################
 log "STEP 1/4: APPLY ZIP (PACKAGE + Delta + Download)"
 
 [ -f "$ZIP" ] || { echo "ZIP not found: $ZIP"; exit 1; }
@@ -73,14 +118,13 @@ shopt -s nullglob
 for ITEM in "$TMP"/*; do
   NAME="$(basename "$ITEM")"
 
-  if [ "$NAME" = "Delta" ]; then
-    log "Replace Delta -> $DELTA_OUT"
+  if [ "$NAME" = "RonixExploit" ]; then
+    log "Replace RonixExploit -> $DELTA_OUT"
     rm -rf "$DELTA_OUT"
     mv "$ITEM" "$DELTA_OUT"
 
   elif [ "$NAME" = "Download" ]; then
     log "Replace Download -> $DOWNLOAD_OUT"
-    # sesuai request kamu: replace total Download
     rm -rf "$DOWNLOAD_OUT"
     mv "$ITEM" "$DOWNLOAD_OUT"
 
@@ -113,27 +157,35 @@ fi
 ###############################################################################
 log "STEP 3/4: SETUP + PYTHON RESOLVE ROBLOX SHARE LINK (WITH PROGRESS)"
 
-# storage permission (aman kalau sudah pernah)
 termux-setup-storage || true
 
-# install deps pakai progress spinner
 run "pkg update" pkg update -y
 run "install python + lua + sqlite + termux-api + sed" pkg install -y python lua53 sqlite termux-api sed
 run "pip install requests" python3 -m pip install -U requests
 
-DEVICE_LABEL=""
-SHARE_LINK=""
+# Prompt interaktif hanya jika argument tidak diberikan
+if [ -z "$DEVICE_LABEL" ]; then
+  read_tty "device_label (contoh: L05): " DEVICE_LABEL
+  while [ -z "$DEVICE_LABEL" ]; do
+    read_tty "device_label tidak boleh kosong, isi lagi: " DEVICE_LABEL
+  done
+else
+  log "Device label dari argument: $DEVICE_LABEL"
+fi
 
-read_tty "device_label (contoh: L05): " DEVICE_LABEL
-while [ -z "$DEVICE_LABEL" ]; do
-  read_tty "device_label tidak boleh kosong, isi lagi: " DEVICE_LABEL
-done
-
-read_tty "roblox SHARE link (https://www.roblox.com/share?...): " SHARE_LINK
-while ! echo "$SHARE_LINK" | grep -qiE '^https?://'; do
-  warn "Harus URL http/https. Input kamu: '$SHARE_LINK'"
-  read_tty "roblox SHARE link: " SHARE_LINK
-done
+if [ -z "$SHARE_LINK" ]; then
+  read_tty "roblox SHARE link (https://www.roblox.com/share?...): " SHARE_LINK
+  while ! echo "$SHARE_LINK" | grep -qiE '^https?://'; do
+    warn "Harus URL http/https. Input kamu: '$SHARE_LINK'"
+    read_tty "roblox SHARE link: " SHARE_LINK
+  done
+else
+  if ! echo "$SHARE_LINK" | grep -qiE '^https?://'; then
+    echo "[!] --link harus URL http/https. Dapat: '$SHARE_LINK'"
+    exit 1
+  fi
+  log "Share link dari argument: $SHARE_LINK"
+fi
 
 log "Resolving link via Python (retry 5x)..."
 FINAL_LINK="$(python3 -c '
