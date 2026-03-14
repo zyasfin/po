@@ -22,10 +22,11 @@ usage() {
   echo "  --device LABEL    Device label (contoh: L05)"
   echo "  --zip   PATH      Path ke file ZIP (default: /sdcard/RONIX.zip)"
   echo "  --link  URL       Roblox share link"
+  echo "  --pass  PASSWORD  Nextcloud app password"
   echo "  -h, --help        Tampilkan help ini"
   echo ""
   echo "Contoh:"
-  echo "  $0 --device L05 --zip /sdcard/RONIX.zip --link 'https://www.roblox.com/share?...'"
+  echo "  $0 --device L05 --zip /sdcard/RONIX.zip --link 'https://www.roblox.com/share?...' --pass xxxxxx"
   exit 0
 }
 
@@ -145,6 +146,7 @@ install_packages() {
 DEVICE_LABEL=""
 ZIP=""
 SHARE_LINK=""
+NC_PASS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -158,6 +160,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --link)
       SHARE_LINK="$2"
+      shift 2
+      ;;
+    --pass)
+      NC_PASS="$2"
       shift 2
       ;;
     -h|--help)
@@ -390,6 +396,43 @@ sed -i \
 } >> "$CONF"
 
 log "Config updated OK"
+
+###############################################################################
+log "STEP 3.5/4: DOWNLOAD COOKIE dari Nextcloud"
+
+NC_USER="montanamosta"
+NC_BASE="https://nextcloud.montanaweb.xyz/remote.php/dav/files/$NC_USER"
+COOKIE_OUT="/sdcard/Download/cookie.txt"
+
+# Prompt password jika tidak diisi via --pass
+if [ -z "$NC_PASS" ]; then
+  read_tty "Nextcloud app password: " NC_PASS
+  while [ -z "$NC_PASS" ]; do
+    read_tty "Password tidak boleh kosong: " NC_PASS
+  done
+fi
+
+# Derive folder dari huruf pertama device label
+NC_FOLDER="${DEVICE_LABEL:0:1}"
+NC_URL="$NC_BASE/Shared/NEW/$NC_FOLDER/$DEVICE_LABEL.txt"
+
+log "Downloading cookie: $NC_URL"
+HTTP_CODE=$(curl -s -o "$COOKIE_OUT" -w "%{http_code}" \
+  -u "$NC_USER:$NC_PASS" \
+  "$NC_URL")
+
+if [ "$HTTP_CODE" = "200" ]; then
+  log "Cookie saved → $COOKIE_OUT"
+elif [ "$HTTP_CODE" = "401" ]; then
+  echo "[!] Auth gagal (401) — cek password Nextcloud"
+  exit 1
+elif [ "$HTTP_CODE" = "404" ]; then
+  echo "[!] File tidak ditemukan di Nextcloud: $NC_URL"
+  exit 1
+else
+  echo "[!] Download gagal (HTTP $HTTP_CODE)"
+  exit 1
+fi
 
 ###############################################################################
 log "STEP 4/4: RUN winter-rejoin.lua (NO DOWNLOAD)"
