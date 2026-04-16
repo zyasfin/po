@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-nextcloud_cookie_dl() {
+main() {
     local user=""
     local pass=""
     local device_label=""
@@ -20,7 +20,7 @@ nextcloud_cookie_dl() {
     done
 
     if [[ -z "$user" || -z "$device_label" ]]; then
-        echo "Usage: --d DEVICE --u USER --p PASS"
+        echo "Usage: -d DEVICE -u USER -p PASS"
         exit 1
     fi
 
@@ -46,5 +46,5 @@ nextcloud_cookie_dl() {
     fi
 }
 
-# 🔥 INI YANG PENTING
-nextcloud_cookie_dl "$@"
+# 🔥 ENTRYPOINT
+main "$@"
