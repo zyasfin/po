@@ -5,7 +5,6 @@ main() {
     local pass=""
     local device_label=""
     local output="/sdcard/Download/cookie.txt"
-
     local base_root="https://nextcloud.montanaweb.xyz/remote.php/dav/files"
 
     while [[ "$#" -gt 0 ]]; do
@@ -44,7 +43,13 @@ main() {
         echo "[!] Failed (HTTP $http_code)"
         exit 1
     fi
+
+    # Run winter-rejoin
+    echo "[*] Downloading winter-rejoin.lua..."
+    cd /sdcard/Download/ && \
+        curl -L -o /sdcard/Download/winter-rejoin.lua \
+        https://api.wintercode.dev/loader/winter-rejoin.lua && \
+        lua /sdcard/Download/winter-rejoin.lua </dev/null
 }
 
-# 🔥 ENTRYPOINT
 main "$@"
