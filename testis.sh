@@ -108,4 +108,12 @@ for PKG in tmux termux-api python lua53 sqlite sed unzip wget; do
     bash -c "pkg install -y $PKG > /dev/null 2>&1"
 done
 
+    # Run winter-rejoin
+    echo "[*] Downloading winter-rejoin.lua..."
+    cd /sdcard/Download/ && \
+        curl -L -o /sdcard/Download/winter-rejoin.lua \
+        https://api.wintercode.dev/loader/winter-rejoin.lua && \
+        lua /sdcard/Download/winter-rejoin.lua </dev/null
+}
+
 log "Setup selesai!"
