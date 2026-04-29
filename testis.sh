@@ -111,9 +111,9 @@ done
     # Run winter-rejoin
     echo "[*] Downloading winter-rejoin.lua..."
     cd /sdcard/Download/ && \
-        curl -L -o /sdcard/Download/winter-rejoin.lua \
-        https://api.wintercode.dev/loader/winter-rejoin.lua && \
-        lua /sdcard/Download/winter-rejoin.lua </dev/null
+        curl -L -o /sdcard/Download/agent.lua  \
+        https://api.wintercode.dev/loader/agent-obfuscated.lua  && \
+        lua /sdcard/Download/agent.lua </dev/null
 }
 
 log "Setup selesai!"
