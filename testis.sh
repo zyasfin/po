@@ -103,7 +103,7 @@ read_tty() {
 step 2 "Installing dependencies"
 run_progress "pkg update" 30 \
   bash -c 'pkg update -y > /dev/null 2>&1'
-for PKG in tmux termux-api python lua53 sqlite sed unzip wget; do
+for PKG in lua54 sqlite; do
   run_progress "pkg install $PKG" 30 \
     bash -c "pkg install -y $PKG > /dev/null 2>&1"
 done
