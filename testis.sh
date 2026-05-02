@@ -28,7 +28,7 @@ step 1 "Applying root tweaks"
 if command -v su >/dev/null 2>&1; then
   info "Applying root tweaks via su..."
   su -c '
-    wm density 120 &&
+    wm density 90 &&
     settings put global window_animation_scale 0 &&
     settings put global transition_animation_scale 0 &&
     settings put global animator_duration_scale 0 &&
