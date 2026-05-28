@@ -29,7 +29,7 @@ do_uninstall() {
   case $MODE in
     adb)    out=$(adb shell pm uninstall --user 0 "$pkg" 2>&1) ;;
     root)   out=$(pm uninstall --user 0 "$pkg" 2>&1) ;;
-    normal) out=$(pm uninstall "$pkg" 2>&1) ;;
+    normal) out=$(su -c "pm uninstall --user 0 '$pkg'" 2>&1) ;;
   esac
   echo "$out" | grep -qi "success" && return 0 || return 1
 }
