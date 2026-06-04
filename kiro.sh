@@ -90,15 +90,26 @@ kill_duplicate_watchdogs() {
 
 download_and_run_agent() {
     log_message "📥 Downloading agent..."
-    if curl -fsSL -o "$AGENT_PATH" "$AGENT_URL"; then
-        log_message "✅ Agent downloaded ke $AGENT_PATH"
-        log_message "🔑 Menjalankan agent (input key via terminal)..."
-        # Buka /dev/tty supaya agent bisa terima input keyboard dari user
-        lua "$AGENT_PATH" < /dev/tty > /dev/tty 2>&1
-        log_message "✅ Agent selesai"
-    else
+    if ! curl -fsSL -o "$AGENT_PATH" "$AGENT_URL"; then
         log_message "✗ Agent download gagal"
+        return 1
     fi
+    log_message "✅ Agent downloaded ke $AGENT_PATH"
+
+    # Minta key dari user langsung di terminal
+    printf "\n🔑 Masukkan script key (32 hex chars): "
+    read -r AGENT_KEY < /dev/tty
+
+    if [ -z "$AGENT_KEY" ]; then
+        log_message "⚠️  Key kosong - skip agent"
+        return 1
+    fi
+
+    log_message "🔑 Menjalankan agent dengan key..."
+    # Pass key sebagai stdin ke lua
+    printf '%s
+' "$AGENT_KEY" | lua "$AGENT_PATH"
+    log_message "✅ Agent selesai"
 }
 
 is_app_running() {
