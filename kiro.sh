@@ -2,6 +2,7 @@
 
 ################################################################################
 # Android Key Bot Watchdog - ROOT VERSION
+# - Auto-jalankan diri sendiri di dalam screen
 # - Lock file prevent multiple instance
 # - Semua deteksi pakai su -c
 # - Deteksi BotService (bukan cuma process)
@@ -16,6 +17,7 @@ CHECK_INTERVAL=30
 LOG_FILE="$HOME/keybot_watchdog.log"
 MAX_LOG_LINES=1000
 RESTART_ACTION="com.example.androidkeybot.WATCHDOG_RESTART"
+SCREEN_NAME="watchdog_keybot"
 
 # Self-install config
 SCRIPT_PATH="$(realpath "$0")"
@@ -26,14 +28,40 @@ BOOT_SCRIPT="$BOOT_DIR/watchdog_keybot.sh"
 LOCK_FILE="/data/data/com.termux/files/usr/tmp/watchdog_keybot.lock"
 
 ################################################################################
-# Lock check
+# Jika belum di dalam screen, masuk screen dulu
+################################################################################
+
+if [ -z "$STY" ]; then
+    # Install screen kalau belum ada
+    if ! command -v screen > /dev/null 2>&1; then
+        echo "📦 Installing screen..."
+        pkg install -y screen
+    fi
+
+    # Cek apakah screen session sudah ada
+    if screen -ls | grep -q "$SCREEN_NAME"; then
+        echo "⚠️  Screen '$SCREEN_NAME' sudah berjalan"
+        echo "   Attach: screen -r $SCREEN_NAME"
+        echo "   Stop  : screen -S $SCREEN_NAME -X quit"
+        exit 0
+    fi
+
+    echo "🖥️  Menjalankan watchdog di screen '$SCREEN_NAME'..."
+    echo "   Attach : screen -r $SCREEN_NAME"
+    echo "   Detach : Ctrl+A lalu D"
+    echo "   Log    : tail -f $LOG_FILE"
+    screen -dmS "$SCREEN_NAME" bash "$SCRIPT_PATH" --in-screen
+    exit 0
+fi
+
+################################################################################
+# Lock check (hanya jalan di dalam screen)
 ################################################################################
 
 if [ -f "$LOCK_FILE" ]; then
     EXISTING_PID=$(cat "$LOCK_FILE" 2>/dev/null)
     if [ -n "$EXISTING_PID" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
         echo "❌ Watchdog sudah berjalan (PID: $EXISTING_PID)"
-        echo "   Stop dulu: kill $EXISTING_PID"
         exit 1
     fi
 fi
@@ -143,12 +171,13 @@ log_message "========================================="
 log_message "🤖 Android Key Bot Watchdog"
 log_message "📦 Package  : $PACKAGE_NAME"
 log_message "⏱️  Interval : ${CHECK_INTERVAL}s"
+log_message "🖥️  Screen   : $SCREEN_NAME"
 log_message "📝 Log      : $LOG_FILE"
 log_message "========================================="
 
 # Cek root
 if ! su -c "id" > /dev/null 2>&1; then
-    log_message "❌ Root tidak tersedia! Jalankan: su -c bash watchdog_keybot.sh"
+    log_message "❌ Root tidak tersedia!"
     exit 1
 fi
 log_message "✅ Root confirmed"
