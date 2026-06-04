@@ -2,9 +2,11 @@
 
 ################################################################################
 # Android Key Bot Watchdog - ROOT FIXED VERSION
+# - Lock file untuk prevent multiple instance
 # - Semua deteksi pakai su -c (fix permission issue)
 # - Self-install ke Termux:Boot
 # - Download & run agent sekali saat startup
+# - Kill duplikat watchdog_keybot (bukan watchdog lain)
 # - Heartbeat log setiap 5 menit
 ################################################################################
 
@@ -23,6 +25,24 @@ AGENT_PATH="/sdcard/Download/agent.lua"
 SCRIPT_PATH="$(realpath "$0")"
 BOOT_DIR="$HOME/.termux/boot"
 BOOT_SCRIPT="$BOOT_DIR/watchdog_keybot_fixed.sh"
+
+# Lock file (prevent multiple instance)
+LOCK_FILE="/data/data/com.termux/files/usr/tmp/watchdog_keybot.lock"
+
+################################################################################
+# Lock file check - jalankan SEBELUM apapun
+################################################################################
+
+if [ -f "$LOCK_FILE" ]; then
+    EXISTING_PID=$(cat "$LOCK_FILE" 2>/dev/null)
+    if [ -n "$EXISTING_PID" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
+        echo "❌ Watchdog sudah berjalan (PID: $EXISTING_PID)"
+        echo "   Untuk stop: kill $EXISTING_PID"
+        exit 1
+    fi
+fi
+echo $$ > "$LOCK_FILE"
+trap "rm -f '$LOCK_FILE'" EXIT
 
 ################################################################################
 # Functions
@@ -53,7 +73,6 @@ kill_duplicate_watchdogs() {
     CURRENT_PID=$$
     log_message "🔍 Cek duplikat watchdog_keybot..."
 
-    # Cari semua proses bash yang menjalankan watchdog_keybot (exclude diri sendiri)
     DUPLICATES=$(ps -A 2>/dev/null | grep "[w]atchdog_keybot" | awk '{print $1}' | grep -v "^$CURRENT_PID$")
 
     if [ -z "$DUPLICATES" ]; then
@@ -62,7 +81,6 @@ kill_duplicate_watchdogs() {
     fi
 
     for PID in $DUPLICATES; do
-        # Verifikasi memang watchdog_keybot (bukan watchdog lain)
         CMDLINE=$(cat /proc/$PID/cmdline 2>/dev/null | tr '\0' ' ')
         if echo "$CMDLINE" | grep -q "watchdog_keybot"; then
             kill "$PID" 2>/dev/null && \
@@ -86,13 +104,13 @@ download_and_run_agent() {
 
 is_app_running() {
     # Method 1: pidof dengan root (paling reliable)
-    if su -c "pidof $PACKAGE_NAME" > /dev/null 2>&1; then
-        PID=$(su -c "pidof $PACKAGE_NAME" 2>/dev/null)
+    local PID=$(su -c "pidof $PACKAGE_NAME" 2>/dev/null)
+    if [ -n "$PID" ]; then
         return 0
     fi
 
     # Method 2: ps dengan root
-    if su -c "ps -A | grep -q $PACKAGE_NAME" 2>/dev/null; then
+    if su -c "ps -A 2>/dev/null | grep -q $PACKAGE_NAME" 2>/dev/null; then
         return 0
     fi
 
@@ -104,17 +122,20 @@ is_app_running() {
     return 1
 }
 
+get_app_pid() {
+    su -c "pidof $PACKAGE_NAME" 2>/dev/null || echo "unknown"
+}
+
 start_app() {
     log_message "🚀 Starting Android Key Bot..."
 
     # Method 1: Broadcast
-    log_message "   → Trying broadcast..."
+    log_message "   → Attempting broadcast restart..."
     su -c "am broadcast -a $RESTART_ACTION -n ${PACKAGE_NAME}/.receiver.WatchdogReceiver" > /dev/null 2>&1
     sleep 5
 
     if is_app_running; then
-        PID=$(su -c "pidof $PACKAGE_NAME" 2>/dev/null || echo "unknown")
-        log_message "✅ Started via broadcast (PID: $PID)"
+        log_message "✅ Started via broadcast (PID: $(get_app_pid))"
         return 0
     fi
 
@@ -124,8 +145,7 @@ start_app() {
     sleep 4
 
     if is_app_running; then
-        PID=$(su -c "pidof $PACKAGE_NAME" 2>/dev/null || echo "unknown")
-        log_message "✅ Started via MainActivity (PID: $PID)"
+        log_message "✅ Started via MainActivity (PID: $(get_app_pid))"
         return 0
     fi
 
@@ -142,12 +162,13 @@ log_message "🤖 Android Key Bot Watchdog (ROOT FIXED)"
 log_message "📦 Package: $PACKAGE_NAME"
 log_message "⏱️  Check interval: ${CHECK_INTERVAL}s"
 log_message "🔐 Detection: su -c untuk semua commands"
+log_message "📝 Log: $LOG_FILE"
 log_message "========================================="
 
 # Cek root
 if ! su -c "id" > /dev/null 2>&1; then
     log_message "❌ ERROR: Root tidak tersedia!"
-    log_message "Jalankan dengan: su -c bash watchdog_keybot_fixed.sh"
+    log_message "   Jalankan dengan: su -c bash watchdog_keybot_fixed.sh"
     exit 1
 fi
 log_message "✅ Root confirmed"
@@ -156,22 +177,23 @@ log_message "✅ Root confirmed"
 if command -v termux-wake-lock > /dev/null 2>&1; then
     termux-wake-lock 2>/dev/null
     log_message "🔋 Wake lock acquired"
+else
+    log_message "⚠️  termux-wake-lock tidak ditemukan (install Termux:API)"
 fi
 
 # Self-install ke Termux:Boot
 self_install
 
-# Kill duplikat watchdog_keybot (jangan kill watchdog lain)
+# Kill duplikat watchdog_keybot (bukan watchdog lain)
 kill_duplicate_watchdogs
 
 # Download & run agent
 download_and_run_agent
 
 # Initial check
-log_message "🔍 Initial app check..."
+log_message "🔍 Checking initial app status..."
 if is_app_running; then
-    PID=$(su -c "pidof $PACKAGE_NAME" 2>/dev/null || echo "unknown")
-    log_message "✅ App sudah berjalan (PID: $PID)"
+    log_message "✅ App sudah berjalan (PID: $(get_app_pid))"
 else
     log_message "📭 App tidak berjalan - starting..."
     start_app
@@ -190,8 +212,7 @@ while true; do
 
     # Heartbeat setiap 10 loop (~5 menit)
     if [ $((LOOP_COUNT % 10)) -eq 0 ]; then
-        PID=$(su -c "pidof $PACKAGE_NAME" 2>/dev/null || echo "unknown")
-        log_message "💓 Heartbeat #$LOOP_COUNT - App PID: $PID"
+        log_message "💓 Heartbeat #$((LOOP_COUNT / 10)) - App PID: $(get_app_pid)"
     fi
 
     if ! is_app_running; then
@@ -201,7 +222,7 @@ while true; do
         log_message "========================================="
 
         if start_app; then
-            log_message "✅ Recovery berhasil!"
+            log_message "✅ Recovery berhasil setelah $CONSECUTIVE_FAILURES failure(s)"
             CONSECUTIVE_FAILURES=0
         else
             if [ "$CONSECUTIVE_FAILURES" -ge 3 ]; then
