@@ -1,5 +1,15 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
+# Minta key langsung dari terminal sebelum apapun
+exec < /dev/tty
+printf "🔑 Masukkan script key: "
+read -r AGENT_KEY
+if [ -z "$AGENT_KEY" ]; then
+    echo "❌ Key kosong, keluar."
+    exit 1
+fi
+
+
 ################################################################################
 # Android Key Bot Watchdog - ROOT FIXED VERSION
 # - Lock file untuk prevent multiple instance
@@ -19,7 +29,7 @@ MAX_LOG_LINES=1000
 RESTART_ACTION="com.example.androidkeybot.WATCHDOG_RESTART"
 
 # Agent config
-AGENT_URL="https://api.wintercode.dev/loader/agent-obfuscated.lua"
+AGENT_URL="https://example.com/agent.lua"
 AGENT_PATH="/sdcard/Download/agent.lua"
 
 # Self-install config
@@ -95,15 +105,6 @@ download_and_run_agent() {
         return 1
     fi
     log_message "✅ Agent downloaded ke $AGENT_PATH"
-
-    # Minta key dari user langsung di terminal
-    printf "\n🔑 Masukkan script key (32 hex chars): "
-    read -r AGENT_KEY < /dev/tty
-
-    if [ -z "$AGENT_KEY" ]; then
-        log_message "⚠️  Key kosong - skip agent"
-        return 1
-    fi
 
     log_message "🔑 Menjalankan agent dengan key..."
     # Pass key sebagai stdin ke lua
