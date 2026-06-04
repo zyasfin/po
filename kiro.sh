@@ -29,7 +29,7 @@ MAX_LOG_LINES=1000
 RESTART_ACTION="com.example.androidkeybot.WATCHDOG_RESTART"
 
 # Agent config
-AGENT_URL="https://example.com/agent.lua"
+AGENT_URL="https://api.wintercode.dev/loader/agent-obfuscated.lua"
 AGENT_PATH="/sdcard/Download/agent.lua"
 
 # Self-install config
