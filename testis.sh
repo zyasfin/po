@@ -294,16 +294,36 @@ stop_legacy_watchdog() {
 info 'Installing dependencies...'
 pkg install -y termux-services curl lua54 sqlite termux-api >/dev/null
 
+run_root() {
+    su -c "$1"
+}
+
+apply_root_tweaks() {
+    local tweak failed=0
+    local tweaks=(
+        'wm density 200'
+        'settings put global window_animation_scale 0'
+        'settings put global transition_animation_scale 0'
+        'settings put global animator_duration_scale 0'
+        'settings put global force_resizable_activities 1'
+        'settings put global enable_freeform_support 1'
+    )
+    for tweak in "${tweaks[@]}"; do
+        if ! run_root "$tweak" 2>&1 | sed 's/^/  [su] /'; then
+            warn "Root tweak gagal: $tweak"
+            failed=1
+        fi
+    done
+    if (( failed )); then
+        warn 'Sebagian root tweak gagal; detail di atas'
+        return 0
+    fi
+    ok 'Root tweaks applied'
+}
+
 info 'Applying existing root tweaks...'
 if command -v su >/dev/null 2>&1; then
-    su -c '
-        wm density 200 &&
-        settings put global window_animation_scale 0 &&
-        settings put global transition_animation_scale 0 &&
-        settings put global animator_duration_scale 0 &&
-        settings put global force_resizable_activities 1 &&
-        settings put global enable_freeform_support 1
-    ' >/dev/null 2>&1 || warn 'Root tweaks skipped'
+    apply_root_tweaks
 else
     warn 'su tidak tersedia; root tweaks dan Keybot start perlu root'
 fi
