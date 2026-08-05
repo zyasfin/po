@@ -27,8 +27,13 @@ require_text "$INSTALLER" 'chmod 600 "$KEY_FILE"'
 require_text "$INSTALLER" 'keybot-watchdog'
 require_text "$INSTALLER" 'winter-agent'
 require_text "$INSTALLER" 'BOOT_SCRIPT="$BOOT_DIR/00-winter-supervisor.sh"'
+require_text "$INSTALLER" 'wait_for_service_daemon()'
 reject_text "$INSTALLER" 'screen -dmS'
 reject_text "$INSTALLER" 'pkg install -y screen'
+
+# SVDIR must be persisted for interactive shells (sv resolves names via SVDIR)
+require_text "$INSTALLER" 'export SVDIR='
+require_text "$INSTALLER" '>>"$HOME/.bashrc"'
 
 # Embedded keybot watchdog content
 require_text "$INSTALLER" 'com.example.androidkeybot'
@@ -60,15 +65,37 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/home" "$TMP/prefix/bin" "$TMP/mockbin"
 CALLS="$TMP/calls.log"
 export CALLS
-for command in pkg su termux-wake-lock service-daemon sv am pm screen; do
+for command in pkg su termux-wake-lock service-daemon am pm screen; do
   cat >"$TMP/mockbin/$command" <<'MOCK'
 #!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >>"$CALLS"
 if [[ "$(basename "$0")" == pm && "${1:-}" == path ]]; then echo 'package:/data/app/termux.boot.apk'; fi
+if [[ "$(basename "$0")" == service-daemon && "${1:-}" == start ]]; then
+    mkdir -p "$PREFIX/var/run"
+    sleep 30 &
+    echo $! >"$PREFIX/var/run/service-daemon.pid"
+fi
 exit 0
 MOCK
   chmod +x "$TMP/mockbin/$command"
 done
+
+# Strict sv mock: like real runit, sv fails until runsvdir supervises the
+# service (supervise/ dir exists). First query per service simulates the
+# runsvdir scan landing, so installers must WAIT + RETRY before sv up.
+cat >"$TMP/mockbin/sv" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s %s\n' "$(basename "$0")" "$*" >>"$CALLS"
+if [[ "${1:-}" == up || "${1:-}" == status ]]; then
+    if [[ ! -d "$SVDIR/$2/supervise" ]]; then
+        mkdir -p "$SVDIR/$2/supervise"
+        echo "sv: fatal: unable to chdir to $2/supervise: file does not exist" >&2
+        exit 1
+    fi
+fi
+exit 0
+MOCK
+chmod +x "$TMP/mockbin/sv"
 
 # Full install run
 HOME="$TMP/home" \
@@ -87,6 +114,9 @@ KEY="$TMP/home/.config/winter-supervisor/agent.key"
 [[ "$(cat "$KEY")" == 'test-key-not-a-real-secret' ]] || fail 'agent key not stored'
 [[ "$(stat -c '%a' "$KEY")" == 600 ]] || fail 'agent key mode is not 600'
 reject_text "$TMP/install.out" 'test-key-not-a-real-secret'
+require_text "$TMP/install.out" 'aktif di runit'
+require_text "$TMP/home/.bashrc" 'export SVDIR='
+require_text "$CALLS" 'sv status keybot-watchdog'
 require_text "$CALLS" 'sv up keybot-watchdog'
 require_text "$CALLS" 'sv up winter-agent'
 

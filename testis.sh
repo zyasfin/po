@@ -237,6 +237,22 @@ read_agent_key() {
     printf '%s' "$key"
 }
 
+wait_for_service_daemon() {
+    local attempt=0 pidfile="$PREFIX/var/run/service-daemon.pid" pid=""
+    while (( attempt < 2 )); do
+        if [[ -s "$pidfile" ]]; then
+            pid="$(cat "$pidfile" 2>/dev/null || true)"
+            if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+                return 0
+            fi
+        fi
+        service-daemon start >/dev/null 2>&1 || true
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+    return 1
+}
+
 install_service() {
     local name="$1" command_path="$2" service_dir
     service_dir="$SVDIR/$name"
@@ -315,17 +331,35 @@ install_service winter-agent "$INSTALL_DIR/winter-agent-runner.sh"
 cp "$INSTALL_DIR/boot-services.sh" "$BOOT_SCRIPT"
 chmod 700 "$BOOT_SCRIPT"
 
+# Persist SVDIR so sv resolves service names in future shells.
+if ! grep -qs 'export SVDIR=' "$HOME/.bashrc" 2>/dev/null; then
+    printf 'export SVDIR=%s\n' "$SVDIR" >>"$HOME/.bashrc"
+fi
+
 if command -v termux-wake-lock >/dev/null 2>&1; then
     termux-wake-lock >/dev/null 2>&1 || true
 fi
-if ! service-daemon start >/dev/null 2>&1; then
-    if [[ ! -s "$PREFIX/var/run/service-daemon.pid" ]] || ! kill -0 "$(cat "$PREFIX/var/run/service-daemon.pid")" 2>/dev/null; then
-        warn 'runit service-daemon gagal start'
-        exit 1
-    fi
+if ! wait_for_service_daemon; then
+    warn 'runit service-daemon gagal start'
+    exit 1
 fi
-sv up keybot-watchdog >/dev/null
-sv up winter-agent >/dev/null
+
+# runsvdir scans SVDIR every 5s; sv up fails until it supervises each
+# service. Poll with sv status, then sv up — with a fallback start.
+for service in keybot-watchdog winter-agent; do
+    attempt=0
+    while (( attempt < 15 )); do
+        if sv status "$service" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+    if (( attempt >= 15 )); then
+        warn "Service $service belum di-supervise runsvdir setelah 15s"
+    fi
+    sv up "$service" >/dev/null 2>&1 || sv start "$service" >/dev/null 2>&1 || true
+done
 
 if command -v pm >/dev/null 2>&1 && ! pm path com.termux.boot >/dev/null 2>&1; then
     warn 'Termux:Boot belum terpasang. Install dari F-Droid lalu buka sekali.'
