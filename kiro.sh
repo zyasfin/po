@@ -1,242 +1,132 @@
 #!/data/data/com.termux/files/usr/bin/bash
+set -euo pipefail
 
-################################################################################
-# Android Key Bot Watchdog - ROOT VERSION
-# - Auto-jalankan diri sendiri di dalam screen
-# - Lock file prevent multiple instance
-# - Semua deteksi pakai su -c
-# - Deteksi BotService (bukan cuma process)
-# - Self-install ke Termux:Boot
-# - Kill duplikat watchdog_keybot
-# - Heartbeat setiap 5 menit
-################################################################################
-
-# Configuration
-PACKAGE_NAME="com.example.androidkeybot"
-CHECK_INTERVAL=30
-LOG_FILE="$HOME/keybot_watchdog.log"
-MAX_LOG_LINES=1000
-RESTART_ACTION="com.example.androidkeybot.WATCHDOG_RESTART"
-SCREEN_NAME="watchdog_keybot"
-
-# Self-install config
-SCRIPT_PATH="$(realpath "$0")"
+BASE_URL="${KIRO_BASE_URL:-https://raw.githubusercontent.com/zyasfin/po/refs/heads/main}"
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+export PREFIX
+export SVDIR="${SVDIR:-$PREFIX/var/service}"
+export LOGDIR="${LOGDIR:-$PREFIX/var/log}"
+INSTALL_DIR="$HOME/.local/lib/winter-supervisor"
+CONFIG_DIR="$HOME/.config/winter-supervisor"
+KEY_FILE="$CONFIG_DIR/agent.key"
 BOOT_DIR="$HOME/.termux/boot"
-BOOT_SCRIPT="$BOOT_DIR/watchdog_keybot.sh"
+BOOT_SCRIPT="$BOOT_DIR/00-winter-supervisor.sh"
 
-# Lock file
-LOCK_FILE="/data/data/com.termux/files/usr/tmp/watchdog_keybot.lock"
+info() { printf '[INFO] %s\n' "$*"; }
+ok() { printf '[OK] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*" >&2; }
 
-################################################################################
-# Jika belum di dalam screen, masuk screen dulu
-################################################################################
+fetch() {
+    curl -fsSL "$BASE_URL/$1" -o "$2"
+}
 
-if [ -z "$STY" ]; then
-    # Install screen kalau belum ada
-    if ! command -v screen > /dev/null 2>&1; then
-        echo "📦 Installing screen..."
-        pkg install -y screen
+read_agent_key() {
+    local key="${WINTER_AGENT_KEY:-}"
+    if [[ -z "$key" && -r /dev/tty ]]; then
+        IFS= read -r -p 'Masukkan key Wintercode agent (boleh kosong): ' key </dev/tty || true
+    elif [[ -z "$key" && -t 0 ]]; then
+        IFS= read -r -p 'Masukkan key Wintercode agent (boleh kosong): ' key || true
     fi
+    printf '%s' "$key"
+}
 
-    # Cek apakah screen session sudah ada
-    if screen -ls | grep -q "$SCREEN_NAME"; then
-        echo "⚠️  Screen '$SCREEN_NAME' sudah berjalan"
-        echo "   Attach: screen -r $SCREEN_NAME"
-        echo "   Stop  : screen -S $SCREEN_NAME -X quit"
-        exit 0
+install_service() {
+    local name="$1" command_path="$2" service_dir
+    service_dir="$SVDIR/$name"
+    mkdir -p "$service_dir/log" "$LOGDIR/sv/$name"
+    cat >"$service_dir/run" <<EOF
+#!/data/data/com.termux/files/usr/bin/sh
+exec "$command_path"
+EOF
+    cat >"$service_dir/log/run" <<EOF
+#!/data/data/com.termux/files/usr/bin/sh
+exec svlogd -tt "$LOGDIR/sv/$name"
+EOF
+    cat >"$service_dir/finish" <<'EOF'
+#!/data/data/com.termux/files/usr/bin/sh
+sleep 10
+EOF
+    chmod 700 "$service_dir/run" "$service_dir/finish" "$service_dir/log/run"
+    rm -f "$service_dir/down"
+}
+
+stop_legacy_watchdog() {
+    local lock="$PREFIX/tmp/watchdog_keybot.lock" pid="" command_line=""
+    if [[ -s "$lock" ]]; then
+        IFS= read -r pid <"$lock" || true
+        if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+            command_line="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
+            if [[ "$command_line" == *watchdog_keybot* || "$command_line" == *kiro.sh* ]]; then
+                kill "$pid" 2>/dev/null || true
+            fi
+        fi
+        rm -f "$lock"
     fi
+    if command -v screen >/dev/null 2>&1; then
+        screen -S watchdog_keybot -X quit >/dev/null 2>&1 || true
+    fi
+    rm -f "$BOOT_DIR/watchdog_keybot.sh" "$BOOT_DIR/watchdog_keybot_fixed.sh"
+}
 
-    echo "🖥️  Menjalankan watchdog di screen '$SCREEN_NAME'..."
-    echo "   Attach : screen -r $SCREEN_NAME"
-    echo "   Detach : Ctrl+A lalu D"
-    echo "   Log    : tail -f $LOG_FILE"
-    screen -dmS "$SCREEN_NAME" bash "$SCRIPT_PATH" --in-screen
-    exit 0
+info 'Installing dependencies...'
+pkg install -y termux-services curl lua54 sqlite termux-api >/dev/null
+
+info 'Applying existing root tweaks...'
+if command -v su >/dev/null 2>&1; then
+    su -c '
+        wm density 200 &&
+        settings put global window_animation_scale 0 &&
+        settings put global transition_animation_scale 0 &&
+        settings put global animator_duration_scale 0 &&
+        settings put global force_resizable_activities 1 &&
+        settings put global enable_freeform_support 1
+    ' >/dev/null 2>&1 || warn 'Root tweaks skipped'
+else
+    warn 'su tidak tersedia; root tweaks dan Keybot start perlu root'
 fi
 
-################################################################################
-# Lock check (hanya jalan di dalam screen)
-################################################################################
+mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$BOOT_DIR" "$SVDIR" "$LOGDIR/sv"
+for script in keybot-watchdog.sh winter-agent-runner.sh boot-services.sh; do
+    fetch "$script" "$INSTALL_DIR/$script"
+    chmod 700 "$INSTALL_DIR/$script"
+done
 
-if [ -f "$LOCK_FILE" ]; then
-    EXISTING_PID=$(cat "$LOCK_FILE" 2>/dev/null)
-    if [ -n "$EXISTING_PID" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
-        echo "❌ Watchdog sudah berjalan (PID: $EXISTING_PID)"
+agent_key="$(read_agent_key)"
+umask 077
+printf '%s\n' "$agent_key" >"$KEY_FILE"
+chmod 600 "$KEY_FILE"
+if [[ -z "$agent_key" ]]; then
+    warn 'Key kosong; Wintercode agent tetap dijalankan tanpa input key'
+else
+    ok 'Key disimpan privat untuk auto-restart agent'
+fi
+agent_key=""
+
+stop_legacy_watchdog
+install_service keybot-watchdog "$INSTALL_DIR/keybot-watchdog.sh"
+install_service winter-agent "$INSTALL_DIR/winter-agent-runner.sh"
+cp "$INSTALL_DIR/boot-services.sh" "$BOOT_SCRIPT"
+chmod 700 "$BOOT_SCRIPT"
+
+if command -v termux-wake-lock >/dev/null 2>&1; then
+    termux-wake-lock >/dev/null 2>&1 || true
+fi
+if ! service-daemon start >/dev/null 2>&1; then
+    if [[ ! -s "$PREFIX/var/run/service-daemon.pid" ]] || ! kill -0 "$(cat "$PREFIX/var/run/service-daemon.pid")" 2>/dev/null; then
+        warn 'runit service-daemon gagal start'
         exit 1
     fi
 fi
-echo $$ > "$LOCK_FILE"
-trap "rm -f '$LOCK_FILE'" EXIT
+sv up keybot-watchdog >/dev/null
+sv up winter-agent >/dev/null
 
-################################################################################
-# Functions
-################################################################################
-
-log_message() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-    echo "$msg" >> "$LOG_FILE"
-    echo "$msg"
-    if [ -f "$LOG_FILE" ]; then
-        LINE_COUNT=$(wc -l < "$LOG_FILE")
-        if [ "$LINE_COUNT" -gt "$MAX_LOG_LINES" ]; then
-            tail -n 500 "$LOG_FILE" > "${LOG_FILE}.tmp"
-            mv "${LOG_FILE}.tmp" "$LOG_FILE"
-        fi
-    fi
-}
-
-self_install() {
-    if [ "$SCRIPT_PATH" != "$BOOT_SCRIPT" ]; then
-        log_message "Self-installing ke Termux:Boot..."
-        mkdir -p "$BOOT_DIR"
-        cp "$SCRIPT_PATH" "$BOOT_SCRIPT"
-        chmod +x "$BOOT_SCRIPT"
-        log_message "✅ Terpasang di $BOOT_SCRIPT (auto-start saat boot)"
-    fi
-}
-
-kill_duplicate_watchdogs() {
-    local CURRENT_PID=$$
-    log_message "🔍 Cek duplikat watchdog_keybot..."
-    local DUPLICATES
-    DUPLICATES=$(ps -A 2>/dev/null | grep "[w]atchdog_keybot" | awk '{print $1}' | grep -v "^$CURRENT_PID$")
-    if [ -z "$DUPLICATES" ]; then
-        log_message "✅ Tidak ada duplikat"
-        return
-    fi
-    for PID in $DUPLICATES; do
-        CMDLINE=$(cat /proc/$PID/cmdline 2>/dev/null | tr '\0' ' ')
-        if echo "$CMDLINE" | grep -q "watchdog_keybot"; then
-            kill "$PID" 2>/dev/null && \
-                log_message "🛑 Killed duplikat (PID: $PID)" || \
-                log_message "⚠️  Gagal kill PID $PID"
-        fi
-    done
-}
-
-is_app_running() {
-    local PID
-    PID=$(su -c "pidof $PACKAGE_NAME" 2>/dev/null)
-    [ -z "$PID" ] && return 1
-
-    su -c "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null && return 0
-
-    sleep 2
-    su -c "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null && return 0
-
-    return 1
-}
-
-get_app_pid() {
-    su -c "pidof $PACKAGE_NAME" 2>/dev/null || echo "unknown"
-}
-
-start_app() {
-    log_message "🚀 Starting Android Key Bot..."
-
-    # Method 1: Broadcast
-    log_message "   → Trying broadcast..."
-    su -c "am broadcast -a $RESTART_ACTION -n ${PACKAGE_NAME}/.receiver.WatchdogReceiver" > /dev/null 2>&1
-    local waited=0
-    while [ $waited -lt 10 ]; do
-        sleep 1; waited=$((waited + 1))
-        if su -c "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null; then
-            log_message "✅ Started via broadcast (PID: $(get_app_pid), ${waited}s)"
-            return 0
-        fi
-    done
-    log_message "   ⚠️ Broadcast timeout"
-
-    # Method 2: MainActivity
-    log_message "   → Trying MainActivity..."
-    su -c "am start -n ${PACKAGE_NAME}/.ui.MainActivity" > /dev/null 2>&1
-    waited=0
-    while [ $waited -lt 8 ]; do
-        sleep 1; waited=$((waited + 1))
-        if su -c "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null; then
-            log_message "✅ Started via MainActivity (PID: $(get_app_pid), ${waited}s)"
-            return 0
-        fi
-    done
-
-    log_message "❌ Semua metode start gagal"
-    return 1
-}
-
-################################################################################
-# Main
-################################################################################
-
-log_message "========================================="
-log_message "🤖 Android Key Bot Watchdog"
-log_message "📦 Package  : $PACKAGE_NAME"
-log_message "⏱️  Interval : ${CHECK_INTERVAL}s"
-log_message "🖥️  Screen   : $SCREEN_NAME"
-log_message "📝 Log      : $LOG_FILE"
-log_message "========================================="
-
-# Cek root
-if ! su -c "id" > /dev/null 2>&1; then
-    log_message "❌ Root tidak tersedia!"
-    exit 1
-fi
-log_message "✅ Root confirmed"
-
-# Wake lock
-if command -v termux-wake-lock > /dev/null 2>&1; then
-    termux-wake-lock 2>/dev/null
-    log_message "🔋 Wake lock acquired"
-else
-    log_message "⚠️  termux-wake-lock tidak ada (install Termux:API)"
+if command -v pm >/dev/null 2>&1 && ! pm path com.termux.boot >/dev/null 2>&1; then
+    warn 'Termux:Boot belum terpasang. Install dari F-Droid lalu buka sekali.'
+elif command -v am >/dev/null 2>&1; then
+    am start -n com.termux.boot/.BootActivity >/dev/null 2>&1 || true
 fi
 
-# Self-install & kill duplikat
-self_install
-kill_duplicate_watchdogs
-
-# Initial check
-log_message "🔍 Checking app status..."
-if is_app_running; then
-    log_message "✅ App sudah berjalan (PID: $(get_app_pid))"
-else
-    log_message "📭 App tidak berjalan - starting..."
-    start_app
-fi
-
-# Monitor loop
-CONSECUTIVE_FAILURES=0
-LOOP_COUNT=0
-log_message "🔄 Monitor loop started..."
-log_message "========================================="
-
-while true; do
-    sleep "$CHECK_INTERVAL"
-    LOOP_COUNT=$((LOOP_COUNT + 1))
-
-    if [ $((LOOP_COUNT % 10)) -eq 0 ]; then
-        log_message "💓 Heartbeat #$((LOOP_COUNT / 10)) - PID: $(get_app_pid)"
-    fi
-
-    if ! is_app_running; then
-        CONSECUTIVE_FAILURES=$((CONSECUTIVE_FAILURES + 1))
-        log_message "========================================="
-        log_message "⚠️  App mati (failure #$CONSECUTIVE_FAILURES)"
-        log_message "========================================="
-
-        if start_app; then
-            log_message "✅ Recovery berhasil"
-            CONSECUTIVE_FAILURES=0
-        elif [ "$CONSECUTIVE_FAILURES" -ge 3 ]; then
-            log_message "❌ CRITICAL: 3x gagal - tunggu 5 menit..."
-            sleep 300
-            CONSECUTIVE_FAILURES=0
-        fi
-    else
-        if [ "$CONSECUTIVE_FAILURES" -gt 0 ]; then
-            log_message "========================================="
-            log_message "✅ APP RECOVERED (PID: $(get_app_pid))"
-            log_message "========================================="
-            CONSECUTIVE_FAILURES=0
-        fi
-    fi
-done
+ok 'Keybot + Wintercode agent aktif di runit'
+ok "Termux:Boot installed: $BOOT_SCRIPT"
+printf 'Status: sv status keybot-watchdog winter-agent\n'
+printf 'Logs  : tail -f %s/var/log/sv/{keybot-watchdog,winter-agent}/current\n' "$PREFIX"
