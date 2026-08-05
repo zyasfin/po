@@ -206,7 +206,7 @@ run_progress 'pkg install sqlite' pkg install -y sqlite
 run_progress 'pkg install termux-api' pkg install -y termux-api
 
 apply_root_tweaks() {
-    local index=0 tweak output rc=0
+    local index=0 tweak rc=0
     local tweaks=(
         'wm density 200'
         'settings put global window_animation_scale 0'
@@ -219,8 +219,8 @@ apply_root_tweaks() {
         index=$((index + 1))
         info "Root tweak $index/6: $tweak"
         printf '  [root] COMMAND: su -c %q\n' "$tweak"
-        if output="$(su -c "$tweak" 2>&1)"; then rc=0; else rc=$?; fi
-        printf '  [root] RAW OUTPUT:\n%s\n' "${output:-<empty>}"
+        printf '  [root] RAW OUTPUT (direct):\n'
+        if su -c "$tweak"; then rc=0; else rc=$?; fi
         printf '  [root] EXIT: %d\n' "$rc"
         if (( rc != 0 )); then
             printf '  [root] TWEAK_FAIL: %s\n' "$tweak"
