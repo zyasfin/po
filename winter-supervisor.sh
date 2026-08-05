@@ -98,12 +98,25 @@ KEY_FILE="${WINTER_AGENT_KEY_FILE:-$HOME/.config/winter-supervisor/agent.key}"
 AGENT_LOG="${WINTER_AGENT_LOG_FILE:-$HOME/.winterhub/agent.log}"
 RESTART_DELAY="${AGENT_RESTART_DELAY:-10}"
 log_message() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-    printf '%s\n' "$msg" | tee -a "$AGENT_LOG"
+    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1"
+}
+watchdog_alive() {
+    local pid="$1"
+    kill -0 "$pid" 2>/dev/null && return 0
+    command -v su >/dev/null 2>&1 && su -c "kill -0 $pid" >/dev/null 2>&1
+}
+find_new_watchdog_pid() {
+    local first_line="$1"
+    [[ -s "$AGENT_LOG" ]] || return 1
+    sed -n "${first_line},\$p" "$AGENT_LOG" 2>/dev/null \
+        | sed -n 's/.*\[WATCHDOG\] Started as root (pid \([0-9][0-9]*\)).*/\1/p' \
+        | tail -n 1
 }
 run_once() {
-    local prompt='Enter script key (32 hex chars):' prompt_tail='' output_tail='' char='' sent=0 rc=0 lua_command='' background_pid=''
+    local prompt='Enter script key (32 hex chars):' prompt_tail='' char='' sent=0 rc=0 lua_command=''
+    local log_start=1 watchdog_pid='' wait_limit="${AGENT_WATCHDOG_WAIT:-30}"
     mkdir -p "$(dirname "$AGENT_PATH")" "$(dirname "$AGENT_LOG")"
+    [[ -f "$AGENT_LOG" ]] && log_start=$(( $(wc -l <"$AGENT_LOG") + 1 ))
     if ! curl -fsSL "$AGENT_URL" -o "${AGENT_PATH}.tmp"; then log_message 'Agent download failed'; return 1; fi
     [[ -s "${AGENT_PATH}.tmp" ]] || { log_message 'Agent download empty'; return 1; }
     mv "${AGENT_PATH}.tmp" "$AGENT_PATH"
@@ -116,9 +129,7 @@ run_once() {
     exec {lua_out}<&"$coproc_out"; exec {lua_in}>&"$coproc_in"
     trap 'kill "$lua_pid" 2>/dev/null || true' INT TERM
     while IFS= read -r -N 1 -u "$lua_out" char; do
-        printf '%s' "$char" | tee -a "$AGENT_LOG"
-        output_tail="${output_tail}${char}"; (( ${#output_tail} > 192 )) && output_tail="${output_tail: -192}"
-        [[ "$output_tail" =~ Agent\ running\ in\ background\ \(PID\ ([0-9]+)\) ]] && background_pid="${BASH_REMATCH[1]}"
+        printf '%s' "$char"
         if (( ! sent )); then
             prompt_tail="${prompt_tail}${char}"; (( ${#prompt_tail} > 96 )) && prompt_tail="${prompt_tail: -96}"
             if [[ "$prompt_tail" == *"$prompt"* ]]; then
@@ -126,19 +137,42 @@ run_once() {
             fi
         fi
     done
-    exec 3>&- 2>/dev/null || true; exec {lua_out}<&-; exec {lua_in}>&-
+    exec {lua_out}<&-; exec {lua_in}>&-
     wait "$lua_pid" 2>/dev/null; rc=$?
     trap - INT TERM; agent_key=''
-    (( sent == 1 )) || { log_message 'Key prompt not found'; return 1; }
-    if [[ "$background_pid" =~ ^[0-9]+$ ]]; then
-        for _ in $(seq 1 10); do kill -0 "$background_pid" 2>/dev/null && { log_message "Background agent alive: PID $background_pid"; return 0; }; sleep 0.1; done
-        log_message "Background agent dead: PID $background_pid"; return 1
-    fi
-    return "$rc"
+    (( sent == 1 )) || log_message 'Key prompt not shown; checking internal watchdog'
+
+    for _ in $(seq 1 "$wait_limit"); do
+        watchdog_pid="$(find_new_watchdog_pid "$log_start" || true)"
+        if [[ "$watchdog_pid" =~ ^[0-9]+$ ]] && watchdog_alive "$watchdog_pid"; then
+            log_message "Wintercode watchdog alive: PID $watchdog_pid"
+            log_message 'Wintercode agent active'
+            if [[ "${AGENT_RUNNER_ONCE:-0}" == 1 ]]; then return 0; fi
+            while watchdog_alive "$watchdog_pid"; do sleep "${AGENT_MONITOR_INTERVAL:-10}"; done
+            log_message "Wintercode watchdog stopped: PID $watchdog_pid"
+            return 1
+        fi
+        sleep 1
+    done
+    log_message "No live Wintercode watchdog found (launcher exit $rc)"
+    return 1
 }
 while true; do
-    log_message 'Starting Wintercode agent...'
-    if run_once; then log_message 'Wintercode agent active'; else log_message 'Wintercode agent exited; restart'; fi
+    existing_watchdog="$(find_new_watchdog_pid 1 || true)"
+    if [[ "$existing_watchdog" =~ ^[0-9]+$ ]] && watchdog_alive "$existing_watchdog"; then
+        log_message "Adopting existing Wintercode watchdog: PID $existing_watchdog"
+        log_message 'Wintercode agent active'
+        [[ "${AGENT_RUNNER_ONCE:-0}" == 1 ]] && exit 0
+        while watchdog_alive "$existing_watchdog"; do sleep "${AGENT_MONITOR_INTERVAL:-10}"; done
+        log_message "Wintercode watchdog stopped: PID $existing_watchdog"
+    else
+        log_message 'Starting Wintercode agent...'
+        if run_once; then
+            [[ "${AGENT_RUNNER_ONCE:-0}" == 1 ]] && exit 0
+        else
+            log_message 'Wintercode agent unavailable; restart'
+        fi
+    fi
     sleep "$RESTART_DELAY"
 done
 SERVICE_EOF
