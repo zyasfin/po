@@ -13,6 +13,10 @@ bash -n "$SCRIPT"
 require_text "$SCRIPT" 'su -c'
 require_text "$SCRIPT" 'wm density 200'
 require_text "$SCRIPT" 'settings put global window_animation_scale 0'
+require_text "$SCRIPT" 'Root tweak $index/6'
+require_text "$SCRIPT" 'RAW OUTPUT'
+require_text "$SCRIPT" 'TWEAK_OK'
+require_text "$SCRIPT" 'TWEAK_FAIL'
 require_text "$SCRIPT" 'run_progress'
 require_text "$SCRIPT" 'pkg update -y'
 require_text "$SCRIPT" 'keybot-watchdog'
@@ -76,7 +80,8 @@ case "$name" in
       printf 'su -c %s\n' "$command_text" >>"$CALLS"
       if [[ "$command_text" == 'id -u' ]]; then printf '0\n';
       elif [[ "${MOCK_ROOT_FAIL:-0}" == 1 && "$command_text" == *'wm density 200'* ]]; then echo 'mock root failure' >&2; exit 1;
-      elif [[ "$command_text" == 'wm density' ]]; then printf 'Override density: 200\n';
+      elif [[ "$command_text" == 'wm density 200' ]]; then printf 'Override density: 200\n';
+      elif [[ "$command_text" == settings\ put\ * ]]; then :;
       elif [[ "$command_text" == settings\ get\ * ]]; then printf '0\n';
       else bash -c "$command_text" || exit $?; fi
     fi
