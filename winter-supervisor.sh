@@ -198,6 +198,7 @@ info "Key source: $KEY_SOURCE"; info 'Key: [REDACTED]'; ok 'Key saved mode 600'
 
 step 2 'Installing dependencies'
 run_progress 'pkg update' pkg update -y
+run_progress 'pkg upgrade' pkg upgrade -y
 run_progress 'pkg install termux-services' pkg install -y termux-services
 run_progress 'pkg install curl' pkg install -y curl
 run_progress 'pkg install lua54' pkg install -y lua54

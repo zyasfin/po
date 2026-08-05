@@ -136,6 +136,10 @@ reject_text "$TMP/install.out" 'test-secret'
 [[ -x "$TMP/prefix/var/service/winter-agent/run" ]] || fail 'winter run missing'
 [[ -x "$TMP/home/.termux/boot/00-winter-supervisor.sh" ]] || fail 'boot script missing'
 require_text "$CALLS" 'su -c wm density 200'
+require_text "$SCRIPT" 'pkg upgrade -y'
+update_line="$(grep -nF 'pkg update -y' "$SCRIPT" | head -1 | cut -d: -f1)"
+upgrade_line="$(grep -nF 'pkg upgrade -y' "$SCRIPT" | head -1 | cut -d: -f1)"
+[[ "$update_line" -lt "$upgrade_line" ]] || fail 'pkg upgrade must follow pkg update'
 require_text "$CALLS" 'service-daemon start'
 require_text "$CALLS" 'sv up keybot-watchdog'
 require_text "$CALLS" 'sv up winter-agent'
