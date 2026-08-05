@@ -41,22 +41,36 @@ run_root() {
     printf '%s\n' "$1" | su
 }
 
+# su di sebagian device tidak mem-forward stdout balik lewat pipe.
+# run_root_capture menulis output perintah root ke file lalu membacanya,
+# supaya kebal terhadap quirk itu. Echo hasilnya ke stdout.
+run_root_capture() {
+    local tmpd="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
+    mkdir -p "$tmpd" 2>/dev/null || tmpd="."
+    local out="$tmpd/.winter_rootcap.$$"
+    rm -f "$out" 2>/dev/null || true
+    printf '{ %s ; } > %s 2>/dev/null\n' "$1" "$out" | su >/dev/null 2>&1 || true
+    [[ -f "$out" ]] && cat "$out" 2>/dev/null || true
+    rm -f "$out" 2>/dev/null || true
+}
+
 root_available() {
-    command -v su >/dev/null 2>&1 && run_root 'id' >/dev/null 2>&1
+    command -v su >/dev/null 2>&1 || return 1
+    [[ "$(run_root_capture 'id -u' | tr -d '[:space:]')" == "0" ]]
 }
 
 service_running() {
     local pid
-    pid="$(run_root "pidof $PACKAGE_NAME" 2>/dev/null | grep -Eo '[0-9]+' | head -1 || true)"
+    pid="$(run_root_capture "pidof $PACKAGE_NAME" | grep -Eo '[0-9]+' | head -1 || true)"
     [[ -n "$pid" ]] || return 1
-    run_root "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null && return 0
+    run_root_capture "dumpsys activity services $PACKAGE_NAME" | grep -q 'BotService' && return 0
     sleep 2
-    run_root "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null
+    run_root_capture "dumpsys activity services $PACKAGE_NAME" | grep -q 'BotService'
 }
 
 get_app_pid() {
     local pid
-    pid="$(run_root "pidof $PACKAGE_NAME" 2>/dev/null | grep -Eo '[0-9]+' | head -1 || true)"
+    pid="$(run_root_capture "pidof $PACKAGE_NAME" | grep -Eo '[0-9]+' | head -1 || true)"
     [[ -n "$pid" ]] && printf '%s\n' "$pid" || printf 'unknown\n'
 }
 
@@ -65,7 +79,7 @@ wait_for_service() {
     while (( waited < timeout )); do
         sleep 1
         waited=$((waited + 1))
-        if run_root "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null; then
+        if run_root_capture "dumpsys activity services $PACKAGE_NAME" | grep -q 'BotService'; then
             log_message "Started (PID: $(get_app_pid), ${waited}s)"
             return 0
         fi
@@ -333,13 +347,24 @@ run_root() {
 }
 
 probe_root() {
-    local output=""
-    output="$(printf '%s\n' 'echo TERMUX_ROOT_OK' | su 2>&1)" || true
-    [[ "$output" == *TERMUX_ROOT_OK* ]]
+    # su di sebagian device tidak mem-forward stdout balik lewat pipe,
+    # jadi jangan andalkan stdout. Root menulis uid ke marker file; kita
+    # cek isinya == 0. Kebal terhadap quirk stdout su.
+    local tmpd="${TMPDIR:-$PREFIX/tmp}"
+    mkdir -p "$tmpd" 2>/dev/null || true
+    local marker="$tmpd/.winter_root_probe.$$"
+    rm -f "$marker" 2>/dev/null || true
+    printf 'id -u > %s 2>/dev/null\n' "$marker" | su >/dev/null 2>&1 || true
+    local uid=""
+    [[ -f "$marker" ]] && uid="$(cat "$marker" 2>/dev/null | tr -d '[:space:]' || true)"
+    rm -f "$marker" 2>/dev/null || true
+    [[ "$uid" == "0" ]]
 }
 
 apply_root_tweaks() {
-    local tweak script='' output=''
+    local tweak script='' output='' tmpd="${TMPDIR:-$PREFIX/tmp}"
+    mkdir -p "$tmpd" 2>/dev/null || true
+    local resultfile="$tmpd/.winter_tweaks.$$"
     local tweaks=(
         'wm density 200'
         'settings put global window_animation_scale 0'
@@ -348,12 +373,16 @@ apply_root_tweaks() {
         'settings put global force_resizable_activities 1'
         'settings put global enable_freeform_support 1'
     )
-    # Satu sesi shell root; tiap tweak lapor TWEAK_OK / TWEAK_FAIL.
+    rm -f "$resultfile" 2>/dev/null || true
+    # Satu sesi shell root; tiap tweak lapor TWEAK_OK / TWEAK_FAIL ke file
+    # (su di device ini tidak mem-forward stdout balik lewat pipe).
     for tweak in "${tweaks[@]}"; do
-        script+="$tweak && echo 'TWEAK_OK: $tweak' || echo 'TWEAK_FAIL: $tweak'"$'\n'
+        script+="if $tweak 2>/dev/null; then echo 'TWEAK_OK: $tweak'; else echo 'TWEAK_FAIL: $tweak'; fi >> $resultfile"$'\n'
     done
-    output="$(printf '%s\n' "$script" | su 2>&1)" || true
-    printf '%s\n' "$output" | sed 's/^/  [su] /'
+    printf '%s\n' "$script" | su >/dev/null 2>&1 || true
+    [[ -f "$resultfile" ]] && output="$(cat "$resultfile" 2>/dev/null || true)"
+    rm -f "$resultfile" 2>/dev/null || true
+    [[ -n "$output" ]] && printf '%s\n' "$output" | sed 's/^/  [su] /'
     if [[ "$output" == *TWEAK_FAIL* ]]; then
         warn 'Sebagian root tweak gagal; detail di atas'
         return 0

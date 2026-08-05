@@ -105,14 +105,14 @@ MOCK
 chmod +x "$TMP/mockbin/getprop"
 
 # su mock: emulate a root shell fed via stdin (no -c flag support — this
-# device's su rejects -c). Executes each stdin line; logs it as "su-exec:".
+# device's su rejects -c). Runs as root, so id -u returns 0.
 cat >"$TMP/mockbin/su" <<'MOCK'
 #!/usr/bin/env bash
 printf 'su (stdin)\n' >>"$CALLS"
 while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     printf 'su-exec: %s\n' "$line" >>"$CALLS"
-    bash -c "$line" || true
+    bash -c "id() { echo 0; }; export -f id; $line" || true
 done
 exit 0
 MOCK
@@ -221,8 +221,9 @@ chmod +x "$TMP/mockbin/sleep"
 : >"$CALLS"
 HOME="$TMP/home" PATH="$TMP/mockbin:$PATH" WATCHDOG_ONCE=1 \
 KEYBOT_LOG_FILE="$TMP/keybot.log" bash "$TMP/keybot.sh"
-require_text "$CALLS" 'su-exec: pidof com.example.androidkeybot'
+require_text "$CALLS" 'su-exec: { pidof com.example.androidkeybot'
 require_text "$CALLS" 'su-exec: am broadcast -a com.example.androidkeybot.WATCHDOG_RESTART'
-require_text "$CALLS" 'BotService'
+require_text "$CALLS" 'dumpsys activity services com.example.androidkeybot'
+require_text "$TMP/keybot.log" 'Recovery berhasil'
 
 printf 'Unified supervisor checks passed\n'
