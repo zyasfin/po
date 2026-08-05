@@ -110,7 +110,8 @@ ok "Agent downloaded: $AGENT_PATH"
 
 run_agent_with_key_prompt() {
     local prompt='Enter script key (32 hex chars):'
-    local prompt_tail='' char='' sent=0 rc=0 lua_command=''
+    local prompt_tail='' output_tail='' char='' sent=0 rc=0 lua_command=''
+    local background_pid=''
 
     command -v script >/dev/null 2>&1 || {
         warn 'Command script tidak tersedia; install util-linux.'
@@ -132,6 +133,13 @@ run_agent_with_key_prompt() {
     while IFS= read -r -N 1 -u "$lua_out" char; do
         printf '%s' "$char"
         printf '%s' "$char" >&3
+        output_tail="${output_tail}${char}"
+        if (( ${#output_tail} > 192 )); then
+            output_tail="${output_tail: -192}"
+        fi
+        if [[ "$output_tail" =~ Agent\ running\ in\ background\ \(PID\ ([0-9]+)\) ]]; then
+            background_pid="${BASH_REMATCH[1]}"
+        fi
         if (( ! sent )); then
             prompt_tail="${prompt_tail}${char}"
             if (( ${#prompt_tail} > 96 )); then
@@ -151,6 +159,18 @@ run_agent_with_key_prompt() {
     if wait "$lua_pid"; then rc=0; else rc=$?; fi
     trap - INT TERM
     (( sent == 1 )) || { warn 'Prompt key Wintercode tidak ditemukan.'; return 1; }
+
+    if [[ "$background_pid" =~ ^[0-9]+$ ]]; then
+        for _ in $(seq 1 10); do
+            if kill -0 "$background_pid" 2>/dev/null; then
+                info "Background agent confirmed alive: PID $background_pid"
+                return 0
+            fi
+            sleep 0.1
+        done
+        warn "Background agent PID $background_pid tidak hidup"
+        return 1
+    fi
     return "$rc"
 }
 

@@ -59,6 +59,29 @@ printf '[SETUP] Dependencies complete\n'
 printf 'Enter script key (32 hex chars):'
 IFS= read -r key </dev/tty || true
 printf '%s\n' "$key" >"$LUA_STDIN"
+if [[ "${MOCK_AGENT_DAEMONIZE:-0}" == 1 ]]; then
+    python3 - "$DAEMON_PID_FILE" <<'PY'
+import os, signal, sys, time
+pid = os.fork()
+if pid:
+    raise SystemExit(0)
+os.setsid()
+signal.signal(signal.SIGHUP, signal.SIG_IGN)
+with open(sys.argv[1], 'w') as f:
+    f.write(str(os.getpid()))
+devnull = os.open('/dev/null', os.O_RDWR)
+for fd in (0, 1, 2):
+    os.dup2(devnull, fd)
+time.sleep(60)
+PY
+    for _ in $(seq 1 20); do
+        [[ -s "$DAEMON_PID_FILE" ]] && break
+        sleep 0.05
+    done
+    daemon_pid="$(cat "$DAEMON_PID_FILE")"
+    printf '\nAgent running in background (PID %s)\n' "$daemon_pid"
+    exit 137
+fi
 printf '\nagent raw output: started\n'
 exit "${MOCK_LUA_RC:-0}"
 MOCK
@@ -104,6 +127,21 @@ bash "$SCRIPT" >"$TMP/run3.out" 2>&1
 [[ "$(cat "$KEY_FILE")" == "$SECRET_TWO" ]] || fail 'new ENV did not rotate saved key'
 [[ "$(cat "$TMP/lua-stdin-3")" == "$SECRET_TWO" ]] || fail 'rotated key not passed to Lua'
 reject_text "$TMP/run3.out" "$SECRET_TWO"
+
+# The live agent daemonizes, prints its PID, then its startup sweep may kill
+# the PTY wrapper (exit 137). A live advertised PID must still count as success.
+LUA_STDIN="$TMP/lua-stdin-daemon" \
+DAEMON_PID_FILE="$TMP/daemon.pid" MOCK_AGENT_DAEMONIZE=1 \
+HOME="$TMP/home" PATH="$TMP/mockbin:$PATH" \
+WINTER_AGENT_KEY_FILE="$KEY_FILE" AGENT_PATH="$AGENT_PATH" \
+WINTER_AGENT_LOG_FILE="$LOG_FILE" \
+bash "$SCRIPT" >"$TMP/daemon.out" 2>&1
+[[ "$(cat "$TMP/lua-stdin-daemon")" == "$SECRET_TWO" ]] || fail 'daemonized agent did not receive saved key'
+daemon_pid="$(cat "$TMP/daemon.pid")"
+kill -0 "$daemon_pid" 2>/dev/null || fail 'advertised background agent is not alive'
+require_text "$TMP/daemon.out" "Background agent confirmed alive: PID $daemon_pid"
+reject_text "$TMP/daemon.out" 'Wintercode agent berhenti dengan exit 137'
+kill "$daemon_pid" 2>/dev/null || true
 
 # Download failure is fatal; Lua must not start.
 : >"$CALLS"
