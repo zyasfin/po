@@ -346,8 +346,9 @@ stop_legacy_watchdog() {
     rm -f "$BOOT_DIR/watchdog_keybot.sh" "$BOOT_DIR/watchdog_keybot_fixed.sh"
 }
 
-info 'Installing dependencies...'
+info '[1/7] Installing dependencies...'
 pkg install -y termux-services curl lua54 sqlite termux-api util-linux >/dev/null
+sleep 1
 
 run_root_tty() {
     local command="$1"
@@ -364,26 +365,34 @@ run_root_tty() {
     fi
 }
 
+run_root_command() {
+    local command="$1" output='' rc=1
+    # Primary path: normal Magisk/KernelSU su -c.
+    if command -v timeout >/dev/null 2>&1; then
+        output="$(timeout 5 su -c "$command" 2>&1)" && rc=0 || rc=$?
+    else
+        output="$(su -c "$command" 2>&1)" && rc=0 || rc=$?
+    fi
+    if (( rc == 0 )); then
+        printf '%s\n' "$output"
+        return 0
+    fi
+    # Device-specific fallback: su only works from an interactive PTY.
+    run_root_tty "$command"
+}
+
 run_root() {
-    run_root_tty "$1"
+    run_root_command "$1"
 }
 
 probe_root() {
-    # su di sebagian device tidak mem-forward stdout balik lewat pipe,
-    # jadi jangan andalkan stdout. Root menulis uid ke marker file; kita
-    # cek isinya == 0. Pakai $HOME (selalu ada & world-writable tidak
-    # diperlukan; cuma butuh readable oleh non-root user Termux).
-    local marker="$HOME/.winter_root_probe.$$"
-    rm -f "$marker" 2>/dev/null || true
-    run_root_tty "id -u > \"$marker\" 2>/dev/null" >/dev/null 2>&1 || true
-    local uid=""
-    [[ -f "$marker" ]] && uid="$(cat "$marker" 2>/dev/null | tr -d '[:space:]' || true)"
-    rm -f "$marker" 2>/dev/null || true
+    local uid=''
+    uid="$(run_root_command 'id -u' 2>/dev/null | tr -d '[:space:]' || true)"
     [[ "$uid" == "0" ]]
 }
 
 apply_root_tweaks() {
-    local tweak script='' output='' resultfile="$HOME/.winter_tweaks.$$"
+    local i=0 tweak output rc failed=0
     local tweaks=(
         'wm density 200'
         'settings put global window_animation_scale 0'
@@ -392,29 +401,34 @@ apply_root_tweaks() {
         'settings put global force_resizable_activities 1'
         'settings put global enable_freeform_support 1'
     )
-    rm -f "$resultfile" 2>/dev/null || true
-    # Satu sesi shell root; tiap tweak lapor TWEAK_OK / TWEAK_FAIL ke file
-    # (su di device ini tidak mem-forward stdout balik lewat pipe).
     for tweak in "${tweaks[@]}"; do
-        script+="if $tweak 2>/dev/null; then echo 'TWEAK_OK: $tweak'; else echo 'TWEAK_FAIL: $tweak'; fi >> $resultfile"$'\n'
+        i=$((i + 1))
+        info "[2/7] Root tweak $i/6: $tweak"
+        output=''
+        if output="$(run_root_command "$tweak" 2>&1)"; then
+            rc=0
+        else
+            rc=$?
+        fi
+        if [[ -n "$output" ]]; then
+            printf '%s\n' "$output" | sed 's/^/  [su] /'
+        fi
+        if (( rc == 0 )); then
+            printf '  [su] TWEAK_OK: %s\n' "$tweak"
+        else
+            printf '  [su] TWEAK_FAIL: %s\n' "$tweak"
+            failed=1
+        fi
+        sleep 1
     done
-    script+='exit\n'
-    run_root_tty "$script" >/dev/null 2>&1 || true
-    [[ -f "$resultfile" ]] && output="$(cat "$resultfile" 2>/dev/null || true)"
-    rm -f "$resultfile" 2>/dev/null || true
-    [[ -n "$output" ]] && printf '%s\n' "$output" | sed 's/^/  [su] /'
-    if [[ "$output" == *TWEAK_FAIL* ]]; then
+    if (( failed )); then
         warn 'Sebagian root tweak gagal; detail di atas'
-        return 0
+    else
+        ok 'Root tweaks applied'
     fi
-    if [[ "$output" != *TWEAK_OK* ]]; then
-        warn 'Root tweaks tidak bisa diverifikasi (lihat output [su] di atas)'
-        return 0
-    fi
-    ok 'Root tweaks applied'
 }
 
-info 'Applying existing root tweaks...'
+info '[2/7] Applying root tweaks...'
 if command -v su >/dev/null 2>&1; then
     if probe_root; then
         apply_root_tweaks
@@ -427,12 +441,15 @@ else
     warn 'su tidak tersedia; root tweaks dan Keybot start perlu root'
 fi
 
+info '[3/7] Installing service files...'
 mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$BOOT_DIR" "$SVDIR" "$LOGDIR/sv"
 print_service keybot-watchdog >"$INSTALL_DIR/keybot-watchdog.sh"
 print_service winter-agent >"$INSTALL_DIR/winter-agent-runner.sh"
 print_service boot-services >"$INSTALL_DIR/boot-services.sh"
 chmod 700 "$INSTALL_DIR/keybot-watchdog.sh" "$INSTALL_DIR/winter-agent-runner.sh" "$INSTALL_DIR/boot-services.sh"
+sleep 1
 
+info '[4/7] Saving agent key...'
 agent_key="$(read_agent_key)"
 umask 077
 printf '%s\n' "$agent_key" >"$KEY_FILE"
@@ -443,20 +460,27 @@ else
     ok 'Key disimpan privat untuk auto-restart agent'
 fi
 agent_key=""
+sleep 1
 
+info '[5/7] Installing Termux:Boot...'
 stop_legacy_watchdog
 install_service keybot-watchdog "$INSTALL_DIR/keybot-watchdog.sh"
 install_service winter-agent "$INSTALL_DIR/winter-agent-runner.sh"
 cp "$INSTALL_DIR/boot-services.sh" "$BOOT_SCRIPT"
 chmod 700 "$BOOT_SCRIPT"
+sleep 1
 
 # Persist SVDIR so sv resolves service names in future shells.
 if ! grep -qs 'export SVDIR=' "$HOME/.bashrc" 2>/dev/null; then
     printf 'export SVDIR=%s\n' "$SVDIR" >>"$HOME/.bashrc"
 fi
 
+info '[6/7] Starting services...'
 if command -v termux-wake-lock >/dev/null 2>&1; then
+    info '[6/7] Acquiring wake lock...'
     termux-wake-lock >/dev/null 2>&1 || true
+else
+    info '[6/7] Wake lock command unavailable; continuing...'
 fi
 if ! wait_for_service_daemon; then
     warn 'runit service-daemon gagal start'
@@ -464,31 +488,52 @@ if ! wait_for_service_daemon; then
 fi
 
 # runsvdir scans SVDIR every 5s; sv up fails until it supervises each
-# service. Poll with sv status, then sv up — with a fallback start.
+# service. Poll with visible progress, then read back actual run state.
+service_ready() {
+    local name="$1" status=''
+    status="$(sv status "$name" 2>&1 || true)"
+    printf '  [sv] %s\n' "$status"
+    [[ "$status" == run:* || "$status" == *$'\nrun:'* ]]
+}
+
+services_ready=1
 for service in keybot-watchdog winter-agent; do
+    info "[6/7] Starting service: $service"
     attempt=0
+    started=0
     while (( attempt < 15 )); do
-        if sv status "$service" >/dev/null 2>&1; then
+        attempt=$((attempt + 1))
+        printf '  [sv] waiting %s (%d/15)\n' "$service" "$attempt"
+        sv up "$service" >/dev/null 2>&1 || sv start "$service" >/dev/null 2>&1 || true
+        if service_ready "$service"; then
+            started=1
             break
         fi
         sleep 1
-        attempt=$((attempt + 1))
     done
-    if (( attempt >= 15 )); then
-        warn "Service $service belum di-supervise runsvdir setelah 15s"
+    if (( ! started )); then
+        warn "Service $service belum running setelah 15s"
+        services_ready=0
+    else
+        ok "Service $service running"
     fi
-    sv up "$service" >/dev/null 2>&1 || sv start "$service" >/dev/null 2>&1 || true
 done
 
+info '[7/7] Readback status...'
 if command -v pm >/dev/null 2>&1 && ! pm path com.termux.boot >/dev/null 2>&1; then
     warn 'Termux:Boot belum terpasang. Install dari F-Droid lalu buka sekali.'
 elif command -v am >/dev/null 2>&1; then
     am start -n com.termux.boot/.BootActivity >/dev/null 2>&1 || true
+    ok "Termux:Boot configured: $BOOT_SCRIPT"
 fi
 
-ok 'Keybot + Wintercode agent aktif di runit'
-ok "Termux:Boot installed: $BOOT_SCRIPT"
+if (( services_ready )); then
+    ok 'Keybot + Wintercode agent aktif di runit'
+    printf 'Status: sv status keybot-watchdog winter-agent\n'
+    printf 'Logs  : tail -f %s/var/log/sv/{keybot-watchdog,winter-agent}/current\n' "$PREFIX"
+else
+    warn 'Service belum semua running; tail ditunda sampai status benar-benar run.'
+    printf 'Cek: sv status keybot-watchdog winter-agent\n'
+fi
 printf 'Device : %s\n' "$(device_model)"
 printf 'Device ID : %s\n' "$(device_id)"
-printf 'Status: sv status keybot-watchdog winter-agent\n'
-printf 'Logs  : tail -f %s/var/log/sv/{keybot-watchdog,winter-agent}/current\n' "$PREFIX"

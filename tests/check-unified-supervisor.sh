@@ -32,12 +32,13 @@ require_text "$INSTALLER" 'probe_root()'
 require_text "$INSTALLER" 'Root untuk Termux belum aktif'
 require_text "$INSTALLER" 'run_root()'
 require_text "$INSTALLER" 'run_root_tty()'
-require_text "$INSTALLER" "script -qec 'su'"
+require_text "$INSTALLER" 'run_root_command()'
+require_text "$INSTALLER" 'su -c'
 require_text "$INSTALLER" 'timeout 5'
 require_text "$INSTALLER" 'device_id()'
 reject_text "$INSTALLER" 'termux-telephony-deviceinfo'
 reject_text "$INSTALLER" 'termux-telephony-deviceid'
-reject_text "$INSTALLER" 'su -c'
+require_text "$INSTALLER" 'TWEAK_OK'
 require_text "$INSTALLER" 'TWEAK_FAIL'
 require_text "$INSTALLER" 'Root tweaks applied'
 require_text "$INSTALLER" 'device_model()'
@@ -113,10 +114,16 @@ chmod +x "$TMP/mockbin/getprop"
 # device's su rejects -c). Runs as root, so id -u returns 0.
 cat >"$TMP/mockbin/su" <<'MOCK'
 #!/usr/bin/env bash
+if [[ "${1:-}" == -c ]]; then
+    printf 'su -c %s\n' "${2:-}" >>"$CALLS"
+    bash -c "id() { echo 0; }; export -f id; ${2:-}" || true
+    exit 0
+fi
 printf 'su (stdin)\n' >>"$CALLS"
 while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     printf 'su-exec: %s\n' "$line" >>"$CALLS"
+    [[ "$line" == exit ]] && break
     bash -c "id() { echo 0; }; export -f id; $line" || true
 done
 exit 0
@@ -161,6 +168,7 @@ if [[ "${1:-}" == up || "${1:-}" == status ]]; then
         echo "sv: fatal: unable to chdir to $2/supervise: file does not exist" >&2
         exit 1
     fi
+    echo "run: $2: (pid 123) 1s"
 fi
 exit 0
 MOCK
@@ -183,11 +191,25 @@ KEY="$TMP/home/.config/winter-supervisor/agent.key"
 [[ "$(cat "$KEY")" == 'test-key-not-a-real-secret' ]] || fail 'agent key not stored'
 [[ "$(stat -c '%a' "$KEY")" == 600 ]] || fail 'agent key mode is not 600'
 reject_text "$TMP/install.out" 'test-key-not-a-real-secret'
+require_text "$TMP/install.out" '[1/7] Installing dependencies'
+require_text "$TMP/install.out" '[2/7] Applying root tweaks'
+require_text "$TMP/install.out" '[3/7] Installing service files'
+require_text "$TMP/install.out" '[4/7] Saving agent key'
+require_text "$TMP/install.out" '[5/7] Installing Termux:Boot'
+require_text "$TMP/install.out" '[6/7] Starting services'
+require_text "$TMP/install.out" '[7/7] Readback status'
 require_text "$TMP/install.out" 'aktif di runit'
 require_text "$TMP/install.out" 'Root tweaks applied'
 require_text "$TMP/install.out" 'Device : MockBrand MockModel'
 require_text "$TMP/install.out" 'Device ID : MOCKSERIAL123'
 require_text "$TMP/home/.bashrc" 'export SVDIR='
+require_text "$CALLS" 'su -c id -u'
+require_text "$CALLS" 'su -c wm density 200'
+require_text "$CALLS" 'su -c settings put global window_animation_scale 0'
+require_text "$CALLS" 'su -c settings put global transition_animation_scale 0'
+require_text "$CALLS" 'su -c settings put global animator_duration_scale 0'
+require_text "$CALLS" 'su -c settings put global force_resizable_activities 1'
+require_text "$CALLS" 'su -c settings put global enable_freeform_support 1'
 require_text "$CALLS" 'sv status keybot-watchdog'
 require_text "$CALLS" 'sv up keybot-watchdog'
 require_text "$CALLS" 'sv up winter-agent'
