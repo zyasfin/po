@@ -28,8 +28,12 @@ require_text "$INSTALLER" 'keybot-watchdog'
 require_text "$INSTALLER" 'winter-agent'
 require_text "$INSTALLER" 'BOOT_SCRIPT="$BOOT_DIR/00-winter-supervisor.sh"'
 require_text "$INSTALLER" 'wait_for_service_daemon()'
+require_text "$INSTALLER" 'probe_root()'
+require_text "$INSTALLER" 'Root untuk Termux belum aktif'
 require_text "$INSTALLER" 'run_root()'
-require_text "$INSTALLER" 'Root tweak gagal'
+require_text "$INSTALLER" '| su'
+reject_text "$INSTALLER" 'su -c'
+require_text "$INSTALLER" 'TWEAK_FAIL'
 require_text "$INSTALLER" 'Root tweaks applied'
 reject_text "$INSTALLER" 'screen -dmS'
 reject_text "$INSTALLER" 'pkg install -y screen'
@@ -68,7 +72,7 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/home" "$TMP/prefix/bin" "$TMP/mockbin"
 CALLS="$TMP/calls.log"
 export CALLS
-for command in pkg su termux-wake-lock service-daemon am pm screen; do
+for command in pkg termux-wake-lock service-daemon am pm screen wm settings; do
   cat >"$TMP/mockbin/$command" <<'MOCK'
 #!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >>"$CALLS"
@@ -82,6 +86,37 @@ exit 0
 MOCK
   chmod +x "$TMP/mockbin/$command"
 done
+
+# su mock: emulate a root shell fed via stdin (no -c flag support — this
+# device's su rejects -c). Executes each stdin line; logs it as "su-exec:".
+cat >"$TMP/mockbin/su" <<'MOCK'
+#!/usr/bin/env bash
+printf 'su (stdin)\n' >>"$CALLS"
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    printf 'su-exec: %s\n' "$line" >>"$CALLS"
+    bash -c "$line" || true
+done
+exit 0
+MOCK
+chmod +x "$TMP/mockbin/su"
+
+# pidof: service dead -> watchdog must detect and recover
+cat >"$TMP/mockbin/pidof" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s %s\n' "$(basename "$0")" "$*" >>"$CALLS"
+exit 1
+MOCK
+chmod +x "$TMP/mockbin/pidof"
+
+# dumpsys: BotService present so recovery verification succeeds
+cat >"$TMP/mockbin/dumpsys" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s %s\n' "$(basename "$0")" "$*" >>"$CALLS"
+echo '    ServiceRecord{abc com.example.androidkeybot/.service.BotService}'
+exit 0
+MOCK
+chmod +x "$TMP/mockbin/dumpsys"
 
 # Strict sv mock: like real runit, sv fails until runsvdir supervises the
 # service (supervise/ dir exists). First query per service simulates the
@@ -167,8 +202,8 @@ chmod +x "$TMP/mockbin/sleep"
 : >"$CALLS"
 HOME="$TMP/home" PATH="$TMP/mockbin:$PATH" WATCHDOG_ONCE=1 \
 KEYBOT_LOG_FILE="$TMP/keybot.log" bash "$TMP/keybot.sh"
-require_text "$CALLS" 'su -c pidof com.example.androidkeybot'
-require_text "$CALLS" 'su -c am broadcast -a com.example.androidkeybot.WATCHDOG_RESTART'
+require_text "$CALLS" 'su-exec: pidof com.example.androidkeybot'
+require_text "$CALLS" 'su-exec: am broadcast -a com.example.androidkeybot.WATCHDOG_RESTART'
 require_text "$CALLS" 'BotService'
 
 printf 'Unified supervisor checks passed\n'

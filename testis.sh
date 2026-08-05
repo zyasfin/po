@@ -37,21 +37,27 @@ log_message() {
     fi
 }
 
+run_root() {
+    printf '%s\n' "$1" | su
+}
+
 root_available() {
-    command -v su >/dev/null 2>&1 && su -c 'id' >/dev/null 2>&1
+    command -v su >/dev/null 2>&1 && run_root 'id' >/dev/null 2>&1
 }
 
 service_running() {
     local pid
-    pid="$(su -c "pidof $PACKAGE_NAME" 2>/dev/null || true)"
+    pid="$(run_root "pidof $PACKAGE_NAME" 2>/dev/null | grep -Eo '[0-9]+' | head -1 || true)"
     [[ -n "$pid" ]] || return 1
-    su -c "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null && return 0
+    run_root "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null && return 0
     sleep 2
-    su -c "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null
+    run_root "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null
 }
 
 get_app_pid() {
-    su -c "pidof $PACKAGE_NAME" 2>/dev/null || printf 'unknown\n'
+    local pid
+    pid="$(run_root "pidof $PACKAGE_NAME" 2>/dev/null | grep -Eo '[0-9]+' | head -1 || true)"
+    [[ -n "$pid" ]] && printf '%s\n' "$pid" || printf 'unknown\n'
 }
 
 wait_for_service() {
@@ -59,7 +65,7 @@ wait_for_service() {
     while (( waited < timeout )); do
         sleep 1
         waited=$((waited + 1))
-        if su -c "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null; then
+        if run_root "dumpsys activity services $PACKAGE_NAME 2>/dev/null | grep -q 'BotService'" 2>/dev/null; then
             log_message "Started (PID: $(get_app_pid), ${waited}s)"
             return 0
         fi
@@ -69,13 +75,13 @@ wait_for_service() {
 
 start_app() {
     log_message "Starting Android Key Bot via watchdog broadcast..."
-    su -c "am broadcast -a $RESTART_ACTION -n ${PACKAGE_NAME}/.receiver.WatchdogReceiver" >/dev/null 2>&1 || true
+    run_root "am broadcast -a $RESTART_ACTION -n ${PACKAGE_NAME}/.receiver.WatchdogReceiver" >/dev/null 2>&1 || true
     if wait_for_service 10; then
         return 0
     fi
 
     log_message "Broadcast timeout; mencoba MainActivity..."
-    su -c "am start -n ${PACKAGE_NAME}/.ui.MainActivity" >/dev/null 2>&1 || true
+    run_root "am start -n ${PACKAGE_NAME}/.ui.MainActivity" >/dev/null 2>&1 || true
     if wait_for_service 8; then
         return 0
     fi
@@ -295,11 +301,19 @@ info 'Installing dependencies...'
 pkg install -y termux-services curl lua54 sqlite termux-api >/dev/null
 
 run_root() {
-    su -c "$1"
+    # Beberapa implementasi su menolak argumen -c tapi menerima perintah
+    # via stdin di shell root (prompt #). Pakai stdin supaya konsisten.
+    printf '%s\n' "$1" | su
+}
+
+probe_root() {
+    local output=""
+    output="$(printf '%s\n' 'echo TERMUX_ROOT_OK' | su 2>&1)" || true
+    [[ "$output" == *TERMUX_ROOT_OK* ]]
 }
 
 apply_root_tweaks() {
-    local tweak failed=0
+    local tweak script='' output=''
     local tweaks=(
         'wm density 200'
         'settings put global window_animation_scale 0'
@@ -308,14 +322,18 @@ apply_root_tweaks() {
         'settings put global force_resizable_activities 1'
         'settings put global enable_freeform_support 1'
     )
+    # Satu sesi shell root; tiap tweak lapor TWEAK_OK / TWEAK_FAIL.
     for tweak in "${tweaks[@]}"; do
-        if ! run_root "$tweak" 2>&1 | sed 's/^/  [su] /'; then
-            warn "Root tweak gagal: $tweak"
-            failed=1
-        fi
+        script+="$tweak && echo 'TWEAK_OK: $tweak' || echo 'TWEAK_FAIL: $tweak'"$'\n'
     done
-    if (( failed )); then
+    output="$(printf '%s\n' "$script" | su 2>&1)" || true
+    printf '%s\n' "$output" | sed 's/^/  [su] /'
+    if [[ "$output" == *TWEAK_FAIL* ]]; then
         warn 'Sebagian root tweak gagal; detail di atas'
+        return 0
+    fi
+    if [[ "$output" != *TWEAK_OK* ]]; then
+        warn 'Root tweaks tidak bisa diverifikasi (lihat output [su] di atas)'
         return 0
     fi
     ok 'Root tweaks applied'
@@ -323,7 +341,13 @@ apply_root_tweaks() {
 
 info 'Applying existing root tweaks...'
 if command -v su >/dev/null 2>&1; then
-    apply_root_tweaks
+    if probe_root; then
+        apply_root_tweaks
+    else
+        warn 'Root untuk Termux belum aktif (su tidak bisa root).'
+        warn 'Buka Magisk/KernelSU > Superuser > beri izin Termux, lalu cek: printf "id\n" | su'
+        warn 'Lanjut tanpa root tweaks; watchdog Keybot butuh root untuk restart bot.'
+    fi
 else
     warn 'su tidak tersedia; root tweaks dan Keybot start perlu root'
 fi
