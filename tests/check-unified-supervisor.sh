@@ -35,6 +35,10 @@ require_text "$INSTALLER" '| su'
 reject_text "$INSTALLER" 'su -c'
 require_text "$INSTALLER" 'TWEAK_FAIL'
 require_text "$INSTALLER" 'Root tweaks applied'
+require_text "$INSTALLER" 'device_model()'
+require_text "$INSTALLER" 'device_id()'
+require_text "$INSTALLER" 'Device :'
+require_text "$INSTALLER" 'Device ID :'
 reject_text "$INSTALLER" 'screen -dmS'
 reject_text "$INSTALLER" 'pkg install -y screen'
 
@@ -86,6 +90,19 @@ exit 0
 MOCK
   chmod +x "$TMP/mockbin/$command"
 done
+
+# getprop mock: phone model info for the install summary
+cat >"$TMP/mockbin/getprop" <<'MOCK'
+#!/usr/bin/env bash
+case "${1:-}" in
+    ro.product.manufacturer) echo 'MockBrand' ;;
+    ro.product.model) echo 'MockModel' ;;
+    ro.serialno) echo 'MOCKSERIAL123' ;;
+    *) exit 1 ;;
+esac
+exit 0
+MOCK
+chmod +x "$TMP/mockbin/getprop"
 
 # su mock: emulate a root shell fed via stdin (no -c flag support — this
 # device's su rejects -c). Executes each stdin line; logs it as "su-exec:".
@@ -154,6 +171,8 @@ KEY="$TMP/home/.config/winter-supervisor/agent.key"
 reject_text "$TMP/install.out" 'test-key-not-a-real-secret'
 require_text "$TMP/install.out" 'aktif di runit'
 require_text "$TMP/install.out" 'Root tweaks applied'
+require_text "$TMP/install.out" 'Device : MockBrand MockModel'
+require_text "$TMP/install.out" 'Device ID :'
 require_text "$TMP/home/.bashrc" 'export SVDIR='
 require_text "$CALLS" 'sv status keybot-watchdog'
 require_text "$CALLS" 'sv up keybot-watchdog'

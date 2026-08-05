@@ -259,6 +259,32 @@ wait_for_service_daemon() {
     return 1
 }
 
+device_model() {
+    local brand='' model=''
+    if command -v getprop >/dev/null 2>&1; then
+        brand="$(getprop ro.product.manufacturer 2>/dev/null | head -1)"
+        model="$(getprop ro.product.model 2>/dev/null | head -1)"
+    fi
+    printf '%s %s' "$brand" "$model" | sed 's/^ *//; s/ *$//'
+}
+
+device_id() {
+    local id=''
+    # 1) termux-api telephony IMEI (butuh Termux:API + izin)
+    if command -v termux-telephony-deviceid >/dev/null 2>&1; then
+        id="$(termux-telephony-deviceid 2>/dev/null | grep -Eo '[0-9]{8,}' | head -1 || true)"
+    fi
+    # 2) Fallback: serial via root (getprop sering kosong tanpa root)
+    if [[ -z "$id" ]] && command -v su >/dev/null 2>&1; then
+        id="$(printf '%s\n' 'getprop ro.serialno' | su 2>/dev/null | grep -Eo '[A-Za-z0-9-]{6,}' | head -1 || true)"
+    fi
+    # 3) Fallback terakhir: Android settings ID
+    if [[ -z "$id" ]] && command -v settings >/dev/null 2>&1; then
+        id="$(settings get secure android_id 2>/dev/null | grep -Eo '[a-f0-9]{8,}' | head -1 || true)"
+    fi
+    [[ -n "$id" ]] && printf '%s' "$id" || printf 'tidak tersedia'
+}
+
 install_service() {
     local name="$1" command_path="$2" service_dir
     service_dir="$SVDIR/$name"
@@ -413,5 +439,7 @@ fi
 
 ok 'Keybot + Wintercode agent aktif di runit'
 ok "Termux:Boot installed: $BOOT_SCRIPT"
+printf 'Device : %s\n' "$(device_model)"
+printf 'Device ID : %s\n' "$(device_id)"
 printf 'Status: sv status keybot-watchdog winter-agent\n'
 printf 'Logs  : tail -f %s/var/log/sv/{keybot-watchdog,winter-agent}/current\n' "$PREFIX"
