@@ -108,13 +108,50 @@ run_progress 'download agent.lua' 30 curl -fL "$AGENT_URL" -o "${AGENT_PATH}.tmp
 mv "${AGENT_PATH}.tmp" "$AGENT_PATH"
 ok "Agent downloaded: $AGENT_PATH"
 
+run_agent_with_key_prompt() {
+    local prompt='Enter script key (32 hex chars):'
+    local prompt_tail='' char='' sent=0 rc=0
+
+    coproc WINTER_LUA { exec lua "$AGENT_PATH" 2>&1; }
+    local lua_pid="$WINTER_LUA_PID"
+    local coproc_out="${WINTER_LUA[0]}"
+    local coproc_in="${WINTER_LUA[1]}"
+    local lua_out lua_in
+    # Duplicate immediately: Bash closes the original coproc descriptors when
+    # the child exits, which can otherwise truncate buffered tail output.
+    exec {lua_out}<&"$coproc_out"
+    exec {lua_in}>&"$coproc_in"
+    trap 'kill "$lua_pid" 2>/dev/null || true' INT TERM
+    exec 3>>"$AGENT_LOG"
+
+    while IFS= read -r -N 1 -u "$lua_out" char; do
+        printf '%s' "$char"
+        printf '%s' "$char" >&3
+        if (( ! sent )); then
+            prompt_tail="${prompt_tail}${char}"
+            if (( ${#prompt_tail} > 96 )); then
+                prompt_tail="${prompt_tail: -96}"
+            fi
+            if [[ "$prompt_tail" == *"$prompt"* ]]; then
+                printf '%s\n' "$agent_key" >&"$lua_in"
+                sent=1
+                info 'Key injected after Wintercode prompt'
+            fi
+        fi
+    done
+    exec 3>&-
+    exec {lua_out}<&-
+    exec {lua_in}>&-
+
+    if wait "$lua_pid"; then rc=0; else rc=$?; fi
+    trap - INT TERM
+    (( sent == 1 )) || { warn 'Prompt key Wintercode tidak ditemukan.'; return 1; }
+    return "$rc"
+}
+
 step 4 'Running Wintercode agent'
 info "Raw agent output (also saved to $AGENT_LOG):"
-if printf '%s\n' "$agent_key" | lua "$AGENT_PATH" 2>&1 | tee -a "$AGENT_LOG"; then
-    rc=0
-else
-    rc=$?
-fi
+if run_agent_with_key_prompt; then rc=0; else rc=$?; fi
 agent_key=''
 if (( rc != 0 )); then
     warn "Wintercode agent berhenti dengan exit $rc"
