@@ -21,7 +21,7 @@ reject_text "$INSTALLER" 'BASE_URL'
 reject_text "$INSTALLER" 'fetch()'
 
 # Installer behavior
-require_text "$INSTALLER" 'pkg install -y termux-services'
+require_text "$INSTALLER" 'pkg install -y termux-services curl lua54 sqlite termux-api util-linux'
 require_text "$INSTALLER" 'Masukkan key Wintercode agent'
 require_text "$INSTALLER" 'chmod 600 "$KEY_FILE"'
 require_text "$INSTALLER" 'keybot-watchdog'
@@ -31,9 +31,11 @@ require_text "$INSTALLER" 'wait_for_service_daemon()'
 require_text "$INSTALLER" 'probe_root()'
 require_text "$INSTALLER" 'Root untuk Termux belum aktif'
 require_text "$INSTALLER" 'run_root()'
-require_text "$INSTALLER" '| su'
-require_text "$INSTALLER" 'exit\n'
-require_text "$INSTALLER" 'termux-telephony-deviceinfo'
+require_text "$INSTALLER" 'run_root_tty()'
+require_text "$INSTALLER" "script -qec 'su'"
+require_text "$INSTALLER" 'timeout 5'
+require_text "$INSTALLER" 'device_id()'
+reject_text "$INSTALLER" 'termux-telephony-deviceinfo'
 reject_text "$INSTALLER" 'termux-telephony-deviceid'
 reject_text "$INSTALLER" 'su -c'
 require_text "$INSTALLER" 'TWEAK_FAIL'
@@ -120,6 +122,15 @@ done
 exit 0
 MOCK
 chmod +x "$TMP/mockbin/su"
+
+# script mock: preserve the stdin-fed root-shell seam without invoking the
+# host's real su during tests.
+cat >"$TMP/mockbin/script" <<'MOCK'
+#!/usr/bin/env bash
+printf 'script %s\n' "$*" >>"$CALLS"
+exec su
+MOCK
+chmod +x "$TMP/mockbin/script"
 
 # pidof: service dead -> watchdog must detect and recover
 cat >"$TMP/mockbin/pidof" <<'MOCK'

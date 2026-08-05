@@ -37,19 +37,31 @@ log_message() {
     fi
 }
 
-run_root() {
-    printf '%s\nexit\n' "$1" | su
+run_root_tty() {
+    local command="$1"
+    if command -v script >/dev/null 2>&1; then
+        # Device su expects an interactive shell/PTY; plain stdin pipe is
+        # accepted visually but does not reliably execute/flush commands.
+        if command -v timeout >/dev/null 2>&1; then
+            printf '%s\nexit\n' "$command" | timeout 5 script -qec 'su' /dev/null 2>/dev/null
+        else
+            printf '%s\nexit\n' "$command" | script -qec 'su' /dev/null 2>/dev/null
+        fi
+    else
+        printf '%s\nexit\n' "$command" | su
+    fi
 }
 
-# su di sebagian device tidak mem-forward stdout balik lewat pipe.
-# run_root_capture menulis output perintah root ke file lalu membacanya,
-# supaya kebal terhadap quirk itu. Echo hasilnya ke stdout.
+run_root() {
+    run_root_tty "$1"
+}
+
 run_root_capture() {
     local tmpd="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
     mkdir -p "$tmpd" 2>/dev/null || tmpd="."
     local out="$tmpd/.winter_rootcap.$$"
     rm -f "$out" 2>/dev/null || true
-    printf '{ %s ; } > "%s" 2>/dev/null\nexit\n' "$1" "$out" | su >/dev/null 2>&1 || true
+    run_root_tty "{ $1 ; } > \"$out\" 2>/dev/null" >/dev/null 2>&1 || true
     [[ -f "$out" ]] && cat "$out" 2>/dev/null || true
     rm -f "$out" 2>/dev/null || true
 }
@@ -283,29 +295,17 @@ device_model() {
 }
 
 device_id() {
-    local id=''
-    # 1) Termux:API device info (butuh app Termux:API + izin).
-    if command -v termux-telephony-deviceinfo >/dev/null 2>&1; then
-        id="$(termux-telephony-deviceinfo 2>/dev/null | sed -n 's/.*"device_id"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\)".*/\1/p' | head -1 || true)"
-    fi
-    # 2) Fallback: serial via root — su di device ini tidak mem-forward
-    #    stdout lewat pipe, jadi root tulis ke file dulu.
-    if [[ -z "$id" ]] && command -v su >/dev/null 2>&1; then
-        local sf="$HOME/.winter_serial.$$"
-        rm -f "$sf" 2>/dev/null || true
-        printf 'getprop ro.serialno > %s 2>/dev/null\nexit\n' "$sf" | su >/dev/null 2>&1 || true
-        [[ -f "$sf" ]] && id="$(grep -Eo '[A-Za-z0-9-]{6,}' "$sf" 2>/dev/null | head -1 || true)"
-        rm -f "$sf" 2>/dev/null || true
-    fi
-    # 3) Fallback: Android ID via root (tidak perlu Termux:API).
-    if [[ -z "$id" ]] && command -v su >/dev/null 2>&1; then
-        local af="$HOME/.winter_android_id.$$"
-        rm -f "$af" 2>/dev/null || true
-        printf 'settings get secure android_id > %s 2>/dev/null\nexit\n' "$af" | su >/dev/null 2>&1 || true
-        [[ -f "$af" ]] && id="$(grep -Eo '[a-f0-9]{8,}' "$af" 2>/dev/null | head -1 || true)"
-        rm -f "$af" 2>/dev/null || true
-    fi
-    [[ -n "$id" ]] && printf '%s' "$id" || printf 'tidak tersedia'
+    local prop value
+    # Serial/HWID dari Android properties. Tidak panggil Termux:API:
+    # command telephony bisa menunggu permission dan menggantung installer.
+    for prop in ro.boot.serialno ro.serialno ro.boot.hardware ro.hardware ro.product.device; do
+        value="$(getprop "$prop" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
+        if [[ -n "$value" && "$value" != "unknown" && "$value" != "0" ]]; then
+            printf '%s' "$value"
+            return 0
+        fi
+    done
+    printf 'tidak tersedia'
 }
 
 install_service() {
@@ -347,13 +347,25 @@ stop_legacy_watchdog() {
 }
 
 info 'Installing dependencies...'
-pkg install -y termux-services curl lua54 sqlite termux-api >/dev/null
+pkg install -y termux-services curl lua54 sqlite termux-api util-linux >/dev/null
+
+run_root_tty() {
+    local command="$1"
+    if command -v script >/dev/null 2>&1; then
+        # Device su expects an interactive shell/PTY; plain stdin pipe is
+        # accepted visually but does not reliably execute/flush commands.
+        if command -v timeout >/dev/null 2>&1; then
+            printf '%s\nexit\n' "$command" | timeout 5 script -qec 'su' /dev/null 2>/dev/null
+        else
+            printf '%s\nexit\n' "$command" | script -qec 'su' /dev/null 2>/dev/null
+        fi
+    else
+        printf '%s\nexit\n' "$command" | su
+    fi
+}
 
 run_root() {
-    # Beberapa implementasi su menolak argumen -c tapi menerima perintah
-    # via stdin di shell root (prompt #). Tutup shell eksplisit agar output
-    # marker selesai di-flush sebelum installer membacanya.
-    printf '%s\nexit\n' "$1" | su
+    run_root_tty "$1"
 }
 
 probe_root() {
@@ -363,7 +375,7 @@ probe_root() {
     # diperlukan; cuma butuh readable oleh non-root user Termux).
     local marker="$HOME/.winter_root_probe.$$"
     rm -f "$marker" 2>/dev/null || true
-    printf 'id -u > %s 2>/dev/null\nexit\n' "$marker" | su >/dev/null 2>&1 || true
+    run_root_tty "id -u > \"$marker\" 2>/dev/null" >/dev/null 2>&1 || true
     local uid=""
     [[ -f "$marker" ]] && uid="$(cat "$marker" 2>/dev/null | tr -d '[:space:]' || true)"
     rm -f "$marker" 2>/dev/null || true
@@ -387,7 +399,7 @@ apply_root_tweaks() {
         script+="if $tweak 2>/dev/null; then echo 'TWEAK_OK: $tweak'; else echo 'TWEAK_FAIL: $tweak'; fi >> $resultfile"$'\n'
     done
     script+='exit\n'
-    printf '%s\n' "$script" | su >/dev/null 2>&1 || true
+    run_root_tty "$script" >/dev/null 2>&1 || true
     [[ -f "$resultfile" ]] && output="$(cat "$resultfile" 2>/dev/null || true)"
     rm -f "$resultfile" 2>/dev/null || true
     [[ -n "$output" ]] && printf '%s\n' "$output" | sed 's/^/  [su] /'
@@ -408,8 +420,8 @@ if command -v su >/dev/null 2>&1; then
         apply_root_tweaks
     else
         warn 'Root untuk Termux belum aktif (su tidak bisa root).'
-        warn 'Buka Magisk/KernelSU > Superuser > beri izin Termux, lalu cek: printf "id\n" | su'
-        warn 'Lanjut tanpa root tweaks; watchdog Keybot butuh root untuk restart bot.'
+        warn 'su tersedia, tapi root shell tidak mengembalikan marker. Buka Magisk/KernelSU > Superuser > izinkan Termux.'
+        warn 'Tes manual: su lalu id -u (harus 0). Lanjut tanpa root tweaks; watchdog Keybot butuh root.'
     fi
 else
     warn 'su tidak tersedia; root tweaks dan Keybot start perlu root'
