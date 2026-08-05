@@ -6,38 +6,54 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 require_text() { grep -Fq -- "$2" "$1" || fail "$1 missing: $2"; }
 reject_text() { ! grep -Fq -- "$2" "$1" || fail "$1 contains forbidden: $2"; }
 
-for file in kiro.sh testis.sh keybot-watchdog.sh winter-agent-runner.sh boot-services.sh; do
-  [[ -f "$ROOT/$file" ]] || fail "missing $file"
-  bash -n "$ROOT/$file"
+INSTALLER="$ROOT/testis.sh"
+[[ -f "$INSTALLER" ]] || fail 'missing testis.sh'
+bash -n "$INSTALLER"
+
+# Single-file architecture: standalone service scripts must be gone
+for file in kiro.sh keybot-watchdog.sh winter-agent-runner.sh boot-services.sh; do
+  [[ ! -f "$ROOT/$file" ]] || fail "$file should be embedded in testis.sh, not standalone"
 done
 
-require_text "$ROOT/kiro.sh" 'pkg install -y termux-services'
-require_text "$ROOT/kiro.sh" 'Masukkan key Wintercode agent'
-require_text "$ROOT/kiro.sh" 'chmod 600 "$KEY_FILE"'
-require_text "$ROOT/kiro.sh" 'keybot-watchdog'
-require_text "$ROOT/kiro.sh" 'winter-agent'
-require_text "$ROOT/kiro.sh" 'BOOT_SCRIPT="$BOOT_DIR/00-winter-supervisor.sh"'
-reject_text "$ROOT/kiro.sh" 'screen -dmS'
-reject_text "$ROOT/kiro.sh" 'pkg install -y screen'
+# Self-contained: no fetching of repo scripts
+reject_text "$INSTALLER" 'KIRO_BASE_URL'
+reject_text "$INSTALLER" 'BASE_URL'
+reject_text "$INSTALLER" 'fetch()'
 
-require_text "$ROOT/keybot-watchdog.sh" 'com.example.androidkeybot'
-require_text "$ROOT/keybot-watchdog.sh" 'BotService'
-require_text "$ROOT/keybot-watchdog.sh" 'WATCHDOG_RESTART'
-require_text "$ROOT/keybot-watchdog.sh" '.ui.MainActivity'
-require_text "$ROOT/keybot-watchdog.sh" 'Heartbeat'
+# Installer behavior
+require_text "$INSTALLER" 'pkg install -y termux-services'
+require_text "$INSTALLER" 'Masukkan key Wintercode agent'
+require_text "$INSTALLER" 'chmod 600 "$KEY_FILE"'
+require_text "$INSTALLER" 'keybot-watchdog'
+require_text "$INSTALLER" 'winter-agent'
+require_text "$INSTALLER" 'BOOT_SCRIPT="$BOOT_DIR/00-winter-supervisor.sh"'
+reject_text "$INSTALLER" 'screen -dmS'
+reject_text "$INSTALLER" 'pkg install -y screen'
 
-require_text "$ROOT/winter-agent-runner.sh" 'https://api.wintercode.dev/loader/agent-obfuscated.lua'
-require_text "$ROOT/winter-agent-runner.sh" 'refresh_agent()'
-require_text "$ROOT/winter-agent-runner.sh" 'printf '\''%s\n'\'' "$agent_key" | lua "$AGENT_PATH"'
-require_text "$ROOT/winter-agent-runner.sh" 'lua "$AGENT_PATH" </dev/null'
-require_text "$ROOT/winter-agent-runner.sh" 'while true'
-reject_text "$ROOT/winter-agent-runner.sh" 'echo "$agent_key"'
+# Embedded keybot watchdog content
+require_text "$INSTALLER" 'com.example.androidkeybot'
+require_text "$INSTALLER" 'BotService'
+require_text "$INSTALLER" 'WATCHDOG_RESTART'
+require_text "$INSTALLER" '.ui.MainActivity'
+require_text "$INSTALLER" 'Heartbeat'
 
-require_text "$ROOT/boot-services.sh" 'service-daemon start'
-require_text "$ROOT/boot-services.sh" 'sv up keybot-watchdog'
-require_text "$ROOT/boot-services.sh" 'sv up winter-agent'
-require_text "$ROOT/boot-services.sh" 'termux-wake-lock'
-require_text "$ROOT/testis.sh" '/kiro.sh'
+# Embedded winter agent runner content
+require_text "$INSTALLER" 'https://api.wintercode.dev/loader/agent-obfuscated.lua'
+require_text "$INSTALLER" 'refresh_agent()'
+require_text "$INSTALLER" 'printf '\''%s\n'\'' "$agent_key" | lua "$AGENT_PATH"'
+require_text "$INSTALLER" 'lua "$AGENT_PATH" </dev/null'
+reject_text "$INSTALLER" 'echo "$agent_key"'
+
+# Embedded boot services content
+require_text "$INSTALLER" 'service-daemon start'
+require_text "$INSTALLER" 'sv up keybot-watchdog'
+require_text "$INSTALLER" 'sv up winter-agent'
+require_text "$INSTALLER" 'termux-wake-lock'
+
+# --print-service seam must emit each embedded script
+for name in keybot-watchdog winter-agent boot-services; do
+  bash "$INSTALLER" --print-service "$name" >/dev/null || fail "--print-service $name failed"
+done
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -54,30 +70,35 @@ MOCK
   chmod +x "$TMP/mockbin/$command"
 done
 
+# Full install run
 HOME="$TMP/home" \
 PREFIX="$TMP/prefix" \
 PATH="$TMP/mockbin:$PATH" \
-KIRO_BASE_URL="file://$ROOT" \
 WINTER_AGENT_KEY='test-key-not-a-real-secret' \
-bash "$ROOT/kiro.sh" >"$TMP/install.out"
+bash "$INSTALLER" >"$TMP/install.out"
 
 BOOT="$TMP/home/.termux/boot/00-winter-supervisor.sh"
 KEY="$TMP/home/.config/winter-supervisor/agent.key"
 [[ -x "$BOOT" ]] || fail 'Termux:Boot script not installed'
 [[ -x "$TMP/prefix/var/service/keybot-watchdog/run" ]] || fail 'keybot service missing'
 [[ -x "$TMP/prefix/var/service/winter-agent/run" ]] || fail 'winter agent service missing'
+[[ -x "$TMP/home/.local/lib/winter-supervisor/keybot-watchdog.sh" ]] || fail 'keybot script not installed'
+[[ -x "$TMP/home/.local/lib/winter-supervisor/winter-agent-runner.sh" ]] || fail 'agent runner not installed'
 [[ "$(cat "$KEY")" == 'test-key-not-a-real-secret' ]] || fail 'agent key not stored'
 [[ "$(stat -c '%a' "$KEY")" == 600 ]] || fail 'agent key mode is not 600'
 reject_text "$TMP/install.out" 'test-key-not-a-real-secret'
 require_text "$CALLS" 'sv up keybot-watchdog'
 require_text "$CALLS" 'sv up winter-agent'
 
+# Boot script behavior
 : >"$CALLS"
 HOME="$TMP/home" PREFIX="$TMP/prefix" PATH="$TMP/mockbin:$PATH" TERMUX_BOOT_DELAY=0 bash "$BOOT"
 require_text "$CALLS" 'service-daemon start'
 require_text "$CALLS" 'sv up keybot-watchdog'
 require_text "$CALLS" 'sv up winter-agent'
 
+# Extracted winter agent runner: key via stdin, never in logs
+bash "$INSTALLER" --print-service winter-agent >"$TMP/runner.sh"
 cat >"$TMP/mockbin/lua" <<'MOCK'
 #!/usr/bin/env bash
 cat >"$LUA_STDIN"
@@ -90,17 +111,20 @@ printf '%s\n' 'runner-key' >"$TMP/agent/key"
 LUA_STDIN="$TMP/agent/stdin-with-key" \
 HOME="$TMP/home" PATH="$TMP/mockbin:$PATH" AGENT_ONCE=1 AGENT_SKIP_REFRESH=1 \
 AGENT_PATH="$TMP/agent/agent.lua" WINTER_AGENT_KEY_FILE="$TMP/agent/key" \
-WINTER_AGENT_LOG_FILE="$TMP/agent/agent.log" bash "$ROOT/winter-agent-runner.sh"
+WINTER_AGENT_LOG_FILE="$TMP/agent/agent.log" bash "$TMP/runner.sh"
 [[ "$(cat "$TMP/agent/stdin-with-key")" == 'runner-key' ]] || fail 'saved key not passed to agent stdin'
 reject_text "$TMP/agent/agent.log" 'runner-key'
 
+# Empty key path: agent runs without stdin input
 : >"$TMP/agent/key"
 LUA_STDIN="$TMP/agent/stdin-empty" \
 HOME="$TMP/home" PATH="$TMP/mockbin:$PATH" AGENT_ONCE=1 AGENT_SKIP_REFRESH=1 \
 AGENT_PATH="$TMP/agent/agent.lua" WINTER_AGENT_KEY_FILE="$TMP/agent/key" \
-WINTER_AGENT_LOG_FILE="$TMP/agent/agent-empty.log" bash "$ROOT/winter-agent-runner.sh"
+WINTER_AGENT_LOG_FILE="$TMP/agent/agent-empty.log" bash "$TMP/runner.sh"
 [[ ! -s "$TMP/agent/stdin-empty" ]] || fail 'empty key should continue without stdin'
 
+# Extracted keybot watchdog: detects dead service, recovers via broadcast
+bash "$INSTALLER" --print-service keybot-watchdog >"$TMP/keybot.sh"
 cat >"$TMP/mockbin/sleep" <<'MOCK'
 #!/usr/bin/env bash
 exit 0
@@ -108,7 +132,7 @@ MOCK
 chmod +x "$TMP/mockbin/sleep"
 : >"$CALLS"
 HOME="$TMP/home" PATH="$TMP/mockbin:$PATH" WATCHDOG_ONCE=1 \
-KEYBOT_LOG_FILE="$TMP/keybot.log" bash "$ROOT/keybot-watchdog.sh"
+KEYBOT_LOG_FILE="$TMP/keybot.log" bash "$TMP/keybot.sh"
 require_text "$CALLS" 'su -c pidof com.example.androidkeybot'
 require_text "$CALLS" 'su -c am broadcast -a com.example.androidkeybot.WATCHDOG_RESTART'
 require_text "$CALLS" 'BotService'
