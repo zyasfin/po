@@ -22,6 +22,11 @@ require_text "$SCRIPT" 'TWEAK_OK'
 require_text "$SCRIPT" 'TWEAK_FAIL'
 require_text "$SCRIPT" 'run_progress'
 require_text "$SCRIPT" 'pkg update -y'
+require_text "$SCRIPT" 'pkg upgrade -y'
+require_text "$SCRIPT" 'Dpkg::Options::=--force-confdef'
+require_text "$SCRIPT" 'Dpkg::Options::=--force-confold'
+require_text "$SCRIPT" 'DEBIAN_FRONTEND=noninteractive'
+require_text "$SCRIPT" 'dpkg --force-confdef --force-confold --configure -a'
 require_text "$SCRIPT" 'keybot-watchdog'
 require_text "$SCRIPT" 'winter-agent'
 require_text "$SCRIPT" 'boot-services'
@@ -58,7 +63,7 @@ mkdir -p "$TMP/home" "$TMP/prefix/bin" "$TMP/mockbin" "$TMP/download"
 CALLS="$TMP/calls.log"
 export CALLS
 
-for command in pkg termux-wake-lock service-daemon am pm su wm settings sv curl lua script; do
+for command in pkg dpkg termux-wake-lock service-daemon am pm su wm settings sv curl lua script; do
 cat >"$TMP/mockbin/$command" <<'MOCK'
 #!/usr/bin/env bash
 name="$(basename "$0")"
