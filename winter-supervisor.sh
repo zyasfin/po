@@ -192,7 +192,11 @@ read_key() {
     mkdir -p "$(dirname "$KEY_FILE")"; umask 077; printf '%s\n' "$key" >"$KEY_FILE"; chmod 600 "$KEY_FILE"; agent_key="$key"
 }
 
-step 1 'Installing dependencies'
+step 1 'Loading Wintercode key'
+agent_key=''; KEY_SOURCE=''; read_key || { warn 'Key kosong; stop'; exit 1; }
+info "Key source: $KEY_SOURCE"; info 'Key: [REDACTED]'; ok 'Key saved mode 600'
+
+step 2 'Installing dependencies'
 run_progress 'pkg update' pkg update -y
 run_progress 'pkg install termux-services' pkg install -y termux-services
 run_progress 'pkg install curl' pkg install -y curl
@@ -200,13 +204,9 @@ run_progress 'pkg install lua54' pkg install -y lua54
 run_progress 'pkg install sqlite' pkg install -y sqlite
 run_progress 'pkg install termux-api' pkg install -y termux-api
 
-step 2 'Applying root tweaks'
+step 3 'Applying root tweaks'
 su -c 'wm density 200 && settings put global window_animation_scale 0 && settings put global transition_animation_scale 0 && settings put global animator_duration_scale 0 && settings put global force_resizable_activities 1 && settings put global enable_freeform_support 1'
 ok 'Root tweaks applied'
-
-step 3 'Loading Wintercode key'
-agent_key=''; KEY_SOURCE=''; read_key || { warn 'Key kosong; stop'; exit 1; }
-info "Key source: $KEY_SOURCE"; info 'Key: [REDACTED]'; ok 'Key saved mode 600'
 
 step 4 'Installing service files'
 mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$BOOT_DIR" "$SVDIR" "$LOGDIR/sv"

@@ -120,6 +120,9 @@ bash "$SCRIPT" >"$TMP/install.out" 2>&1
 
 require_text "$TMP/install.out" '[01]'
 require_text "$TMP/install.out" '[02]'
+key_pos="$(grep -nF '[01]' "$TMP/install.out" | head -1 | cut -d: -f1)"
+dep_pos="$(grep -nF '[02]' "$TMP/install.out" | head -1 | cut -d: -f1)"
+[[ "$key_pos" -lt "$dep_pos" ]] || fail 'key prompt must precede dependencies'
 require_text "$TMP/install.out" '[03]'
 require_text "$TMP/install.out" '[04]'
 require_text "$TMP/install.out" '[05]'
@@ -150,7 +153,7 @@ run_failure_case() {
     require_text "$TMP/$label.out" "$expected"
     reject_text "$TMP/$label.out" "$forbidden"
 }
-run_failure_case deps 'mock dependency failure' '[02]' env MOCK_DEP_FAIL=1
+run_failure_case deps 'mock dependency failure' '[03]' env MOCK_DEP_FAIL=1
 run_failure_case root 'mock root failure' '[04]' env MOCK_ROOT_FAIL=1
 run_failure_case boot 'mock boot missing' '[06]' env MOCK_BOOT_FAIL=1
 run_failure_case service 'mock service failure' '[07]' env MOCK_SV_FAIL=1
