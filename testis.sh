@@ -38,7 +38,7 @@ log_message() {
 }
 
 run_root() {
-    printf '%s\n' "$1" | su
+    printf '%s\nexit\n' "$1" | su
 }
 
 # su di sebagian device tidak mem-forward stdout balik lewat pipe.
@@ -49,7 +49,7 @@ run_root_capture() {
     mkdir -p "$tmpd" 2>/dev/null || tmpd="."
     local out="$tmpd/.winter_rootcap.$$"
     rm -f "$out" 2>/dev/null || true
-    printf '{ %s ; } > %s 2>/dev/null\n' "$1" "$out" | su >/dev/null 2>&1 || true
+    printf '{ %s ; } > "%s" 2>/dev/null\nexit\n' "$1" "$out" | su >/dev/null 2>&1 || true
     [[ -f "$out" ]] && cat "$out" 2>/dev/null || true
     rm -f "$out" 2>/dev/null || true
 }
@@ -284,17 +284,26 @@ device_model() {
 
 device_id() {
     local id=''
-    # 1) termux-api telephony IMEI (butuh Termux:API + izin)
-    if command -v termux-telephony-deviceid >/dev/null 2>&1; then
-        id="$(termux-telephony-deviceid 2>/dev/null | grep -Eo '[0-9]{8,}' | head -1 || true)"
+    # 1) Termux:API device info (butuh app Termux:API + izin).
+    if command -v termux-telephony-deviceinfo >/dev/null 2>&1; then
+        id="$(termux-telephony-deviceinfo 2>/dev/null | sed -n 's/.*"device_id"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\)".*/\1/p' | head -1 || true)"
     fi
-    # 2) Fallback: serial via root (getprop sering kosong tanpa root)
+    # 2) Fallback: serial via root — su di device ini tidak mem-forward
+    #    stdout lewat pipe, jadi root tulis ke file dulu.
     if [[ -z "$id" ]] && command -v su >/dev/null 2>&1; then
-        id="$(printf '%s\n' 'getprop ro.serialno' | su 2>/dev/null | grep -Eo '[A-Za-z0-9-]{6,}' | head -1 || true)"
+        local sf="$HOME/.winter_serial.$$"
+        rm -f "$sf" 2>/dev/null || true
+        printf 'getprop ro.serialno > %s 2>/dev/null\nexit\n' "$sf" | su >/dev/null 2>&1 || true
+        [[ -f "$sf" ]] && id="$(grep -Eo '[A-Za-z0-9-]{6,}' "$sf" 2>/dev/null | head -1 || true)"
+        rm -f "$sf" 2>/dev/null || true
     fi
-    # 3) Fallback terakhir: Android settings ID
-    if [[ -z "$id" ]] && command -v settings >/dev/null 2>&1; then
-        id="$(settings get secure android_id 2>/dev/null | grep -Eo '[a-f0-9]{8,}' | head -1 || true)"
+    # 3) Fallback: Android ID via root (tidak perlu Termux:API).
+    if [[ -z "$id" ]] && command -v su >/dev/null 2>&1; then
+        local af="$HOME/.winter_android_id.$$"
+        rm -f "$af" 2>/dev/null || true
+        printf 'settings get secure android_id > %s 2>/dev/null\nexit\n' "$af" | su >/dev/null 2>&1 || true
+        [[ -f "$af" ]] && id="$(grep -Eo '[a-f0-9]{8,}' "$af" 2>/dev/null | head -1 || true)"
+        rm -f "$af" 2>/dev/null || true
     fi
     [[ -n "$id" ]] && printf '%s' "$id" || printf 'tidak tersedia'
 }
@@ -342,19 +351,19 @@ pkg install -y termux-services curl lua54 sqlite termux-api >/dev/null
 
 run_root() {
     # Beberapa implementasi su menolak argumen -c tapi menerima perintah
-    # via stdin di shell root (prompt #). Pakai stdin supaya konsisten.
-    printf '%s\n' "$1" | su
+    # via stdin di shell root (prompt #). Tutup shell eksplisit agar output
+    # marker selesai di-flush sebelum installer membacanya.
+    printf '%s\nexit\n' "$1" | su
 }
 
 probe_root() {
     # su di sebagian device tidak mem-forward stdout balik lewat pipe,
     # jadi jangan andalkan stdout. Root menulis uid ke marker file; kita
-    # cek isinya == 0. Kebal terhadap quirk stdout su.
-    local tmpd="${TMPDIR:-$PREFIX/tmp}"
-    mkdir -p "$tmpd" 2>/dev/null || true
-    local marker="$tmpd/.winter_root_probe.$$"
+    # cek isinya == 0. Pakai $HOME (selalu ada & world-writable tidak
+    # diperlukan; cuma butuh readable oleh non-root user Termux).
+    local marker="$HOME/.winter_root_probe.$$"
     rm -f "$marker" 2>/dev/null || true
-    printf 'id -u > %s 2>/dev/null\n' "$marker" | su >/dev/null 2>&1 || true
+    printf 'id -u > %s 2>/dev/null\nexit\n' "$marker" | su >/dev/null 2>&1 || true
     local uid=""
     [[ -f "$marker" ]] && uid="$(cat "$marker" 2>/dev/null | tr -d '[:space:]' || true)"
     rm -f "$marker" 2>/dev/null || true
@@ -362,9 +371,7 @@ probe_root() {
 }
 
 apply_root_tweaks() {
-    local tweak script='' output='' tmpd="${TMPDIR:-$PREFIX/tmp}"
-    mkdir -p "$tmpd" 2>/dev/null || true
-    local resultfile="$tmpd/.winter_tweaks.$$"
+    local tweak script='' output='' resultfile="$HOME/.winter_tweaks.$$"
     local tweaks=(
         'wm density 200'
         'settings put global window_animation_scale 0'
@@ -379,6 +386,7 @@ apply_root_tweaks() {
     for tweak in "${tweaks[@]}"; do
         script+="if $tweak 2>/dev/null; then echo 'TWEAK_OK: $tweak'; else echo 'TWEAK_FAIL: $tweak'; fi >> $resultfile"$'\n'
     done
+    script+='exit\n'
     printf '%s\n' "$script" | su >/dev/null 2>&1 || true
     [[ -f "$resultfile" ]] && output="$(cat "$resultfile" 2>/dev/null || true)"
     rm -f "$resultfile" 2>/dev/null || true
