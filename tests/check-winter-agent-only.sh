@@ -18,6 +18,7 @@ require_text "$SCRIPT" 'https://api.wintercode.dev/loader/agent-obfuscated.lua'
 require_text "$SCRIPT" '/sdcard/Download/agent.lua'
 require_text "$SCRIPT" 'Enter script key (32 hex chars):'
 require_text "$SCRIPT" 'coproc WINTER_LUA'
+require_text "$SCRIPT" 'script -q -E never -c'
 require_text "$SCRIPT" 'printf '\''%s\n'\'' "$agent_key" >&"$lua_in"'
 reject_text "$SCRIPT" 'printf '\''%s\n'\'' "$agent_key" | lua'
 
@@ -51,11 +52,12 @@ MOCK
 cat >"$TMP/mockbin/lua" <<'MOCK'
 #!/usr/bin/env bash
 printf 'lua %s\n' "$*" >>"$CALLS"
-# Simulate a setup child (pkg/apt) consuming anything sent too early.
-IFS= read -r -t 0.2 discarded || true
+# Real agent reads from its terminal. Simulate setup consuming early terminal
+# input, then the key prompt reading from /dev/tty (not a plain stdin pipe).
+IFS= read -r -t 0.2 discarded </dev/tty || true
 printf '[SETUP] Dependencies complete\n'
 printf 'Enter script key (32 hex chars):'
-IFS= read -r key || true
+IFS= read -r key </dev/tty || true
 printf '%s\n' "$key" >"$LUA_STDIN"
 printf '\nagent raw output: started\n'
 exit "${MOCK_LUA_RC:-0}"

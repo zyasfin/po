@@ -110,9 +110,14 @@ ok "Agent downloaded: $AGENT_PATH"
 
 run_agent_with_key_prompt() {
     local prompt='Enter script key (32 hex chars):'
-    local prompt_tail='' char='' sent=0 rc=0
+    local prompt_tail='' char='' sent=0 rc=0 lua_command=''
 
-    coproc WINTER_LUA { exec lua "$AGENT_PATH" 2>&1; }
+    command -v script >/dev/null 2>&1 || {
+        warn 'Command script tidak tersedia; install util-linux.'
+        return 1
+    }
+    printf -v lua_command 'exec lua %q' "$AGENT_PATH"
+    coproc WINTER_LUA { exec script -q -E never -c "$lua_command" /dev/null 2>&1; }
     local lua_pid="$WINTER_LUA_PID"
     local coproc_out="${WINTER_LUA[0]}"
     local coproc_in="${WINTER_LUA[1]}"
