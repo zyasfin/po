@@ -38,6 +38,16 @@ reject_text "$SCRIPT" 'screen -dmS'
 reject_text "$SCRIPT" 'screen -S watchdog_keybot'
 require_text "$SCRIPT" 'WINTER_AGENT_KEY'
 require_text "$SCRIPT" 'KEY_FILE'
+require_text "$SCRIPT" 'device_model()'
+require_text "$SCRIPT" 'device_id()'
+require_text "$SCRIPT" 'ram_summary()'
+require_text "$SCRIPT" 'storage_summary()'
+require_text "$SCRIPT" 'cpu_summary()'
+require_text "$SCRIPT" 'Phone Model :'
+require_text "$SCRIPT" 'Device ID   :'
+require_text "$SCRIPT" 'RAM         :'
+require_text "$SCRIPT" 'Storage     :'
+require_text "$SCRIPT" 'CPU         :'
 
 for service in keybot-watchdog winter-agent boot-services; do
     bash "$SCRIPT" --print-service "$service" >/dev/null || fail "print service $service failed"
@@ -63,7 +73,7 @@ mkdir -p "$TMP/home" "$TMP/prefix/bin" "$TMP/mockbin" "$TMP/download"
 CALLS="$TMP/calls.log"
 export CALLS
 
-for command in pkg dpkg termux-wake-lock service-daemon am pm su wm settings sv curl lua script; do
+for command in pkg dpkg termux-wake-lock service-daemon am pm su wm settings sv curl lua script getprop nproc df; do
 cat >"$TMP/mockbin/$command" <<'MOCK'
 #!/usr/bin/env bash
 name="$(basename "$0")"
@@ -98,6 +108,20 @@ case "$name" in
   settings)
     [[ "${1:-}" == get ]] && printf '0\n'
     ;;
+  getprop)
+    case "${1:-}" in
+      ro.product.manufacturer) printf 'MockBrand\n' ;;
+      ro.product.model) printf 'MockModel\n' ;;
+      ro.boot.serialno) printf 'MOCKSERIAL123\n' ;;
+      ro.soc.manufacturer) printf 'Qualcomm\n' ;;
+      ro.soc.model) printf 'MockSoC\n' ;;
+    esac
+    ;;
+  nproc) printf '8\n' ;;
+  df)
+    printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+    printf '/dev/mock 20971520 6291456 14680064 30%% /data\n'
+    ;;
   sv)
     service="${2:-}"
     if [[ "${MOCK_SV_FAIL:-0}" == 1 ]]; then echo 'mock service failure' >&2; exit 1; fi
@@ -125,9 +149,19 @@ MOCK
 chmod +x "$TMP/mockbin/$command"
 done
 
+cat >"$TMP/meminfo" <<'MEMINFO'
+MemTotal:        8388608 kB
+MemFree:         1048576 kB
+Buffers:          262144 kB
+Cached:           786432 kB
+SReclaimable:     131072 kB
+Shmem:            131072 kB
+MEMINFO
+
 HOME="$TMP/home" PREFIX="$TMP/prefix" PATH="$TMP/mockbin:$PATH" \
 WINTER_AGENT_KEY='test-secret' AGENT_PATH="$TMP/download/agent.lua" \
 WINTER_AGENT_LOG_FILE="$TMP/home/winter_agent.log" \
+MEMINFO_PATH="$TMP/meminfo" \
 SERVICE_START_ATTEMPTS=1 SERVICE_LOG_ATTEMPTS=1 \
 bash "$SCRIPT" >"$TMP/install.out" 2>&1
 
@@ -144,6 +178,11 @@ require_text "$TMP/install.out" '[07]'
 require_text "$TMP/install.out" 'Keybot + Wintercode agent aktif'
 require_text "$TMP/install.out" 'raw service log keybot-watchdog'
 require_text "$TMP/install.out" 'raw service log winter-agent'
+require_text "$TMP/install.out" 'Phone Model : MockBrand MockModel'
+require_text "$TMP/install.out" 'Device ID   : MOCKSERIAL123'
+require_text "$TMP/install.out" 'RAM         : 6.0 GB used / 8.0 GB total'
+require_text "$TMP/install.out" 'Storage     : 6.0 GB used / 20.0 GB total'
+require_text "$TMP/install.out" 'CPU         : Qualcomm MockSoC · 8 cores total'
 reject_text "$TMP/install.out" 'test-secret'
 [[ -x "$TMP/prefix/var/service/keybot-watchdog/run" ]] || fail 'keybot run missing'
 [[ -x "$TMP/prefix/var/service/winter-agent/run" ]] || fail 'winter run missing'

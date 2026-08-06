@@ -226,6 +226,68 @@ read_key() {
     mkdir -p "$(dirname "$KEY_FILE")"; umask 077; printf '%s\n' "$key" >"$KEY_FILE"; chmod 600 "$KEY_FILE"; agent_key="$key"
 }
 
+device_model() {
+    local manufacturer='' model=''
+    command -v getprop >/dev/null 2>&1 || { printf 'tidak tersedia'; return; }
+    manufacturer="$(getprop ro.product.manufacturer 2>/dev/null | head -n 1 | xargs)"
+    model="$(getprop ro.product.model 2>/dev/null | head -n 1 | xargs)"
+    if [[ -n "$manufacturer$model" ]]; then
+        printf '%s %s' "$manufacturer" "$model" | xargs
+    else
+        printf 'tidak tersedia'
+    fi
+}
+
+device_id() {
+    local value='' property
+    if command -v getprop >/dev/null 2>&1; then
+        for property in ro.boot.serialno ro.serialno; do
+            value="$(getprop "$property" 2>/dev/null | head -n 1 | xargs)"
+            case "$value" in ''|unknown|Unknown|null|Null|NULL) value='' ;; *) break ;; esac
+        done
+    fi
+    if [[ -z "$value" ]] && command -v settings >/dev/null 2>&1; then
+        value="$(settings get secure android_id 2>/dev/null | head -n 1 | xargs)"
+        case "$value" in ''|unknown|Unknown|null|Null|NULL) value='' ;; esac
+    fi
+    [[ -n "$value" ]] && printf '%s' "$value" || printf 'tidak tersedia'
+}
+
+ram_summary() {
+    awk '/MemTotal:/{t=$2}/MemFree:/{f=$2}/Buffers:/{b=$2}/^Cached:/{c=$2}
+         /SReclaimable:/{sr=$2}/Shmem:/{sh=$2}
+         END{u=t-f-b-c-sr+sh;if(u<0)u=0
+           if(t>0)printf "%.1f GB used / %.1f GB total",u/1048576,t/1048576
+           else printf "tidak tersedia"}' "${MEMINFO_PATH:-/proc/meminfo}" 2>/dev/null
+}
+
+storage_summary() {
+    local candidate line=''
+    for candidate in /data /sdcard /storage/emulated/0 /; do
+        if line="$(df -k "$candidate" 2>/dev/null | awk 'NR==2{print $2, $3; exit}')" && [[ -n "$line" ]]; then
+            break
+        fi
+    done
+    if [[ -n "$line" ]]; then
+        awk -v values="$line" 'BEGIN{split(values,a," "); printf "%.1f GB used / %.1f GB total",a[2]/1048576,a[1]/1048576}'
+    else
+        printf 'tidak tersedia'
+    fi
+}
+
+cpu_summary() {
+    local vendor='' soc='' cores=''
+    if command -v getprop >/dev/null 2>&1; then
+        vendor="$(getprop ro.soc.manufacturer 2>/dev/null | head -n 1 | xargs)"
+        soc="$(getprop ro.soc.model 2>/dev/null | head -n 1 | xargs)"
+        [[ -n "$soc" ]] || soc="$(getprop ro.board.platform 2>/dev/null | head -n 1 | xargs)"
+    fi
+    cores="$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || true)"
+    [[ -n "$vendor$soc" ]] || vendor='Unknown'
+    [[ -n "$cores" && "$cores" != 0 ]] || cores='?'
+    printf '%s %s · %s cores total' "$vendor" "$soc" "$cores" | xargs
+}
+
 step 1 'Loading Wintercode key'
 agent_key=''; KEY_SOURCE=''; read_key || { warn 'Key kosong; stop'; exit 1; }
 info "Key source: $KEY_SOURCE"; info 'Key: [REDACTED]'; ok 'Key saved mode 600'
@@ -316,4 +378,10 @@ for service in keybot-watchdog winter-agent; do
 done
 ok 'Keybot + Wintercode agent aktif di runit'
 ok "Termux:Boot: $BOOT_SCRIPT"
+printf '\n  DEVICE SUMMARY\n'
+printf '  Phone Model : %s\n' "$(device_model)"
+printf '  Device ID   : %s\n' "$(device_id)"
+printf '  RAM         : %s\n' "$(ram_summary)"
+printf '  Storage     : %s\n' "$(storage_summary)"
+printf '  CPU         : %s\n' "$(cpu_summary)"
 printf 'Logs: tail -f %s/var/log/sv/{keybot-watchdog,winter-agent}/current\n' "$PREFIX"
